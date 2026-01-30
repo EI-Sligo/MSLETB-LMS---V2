@@ -13,28 +13,147 @@ const state = {
 };
 
 // ==========================================
-// 2. AUTHENTICATION & UI LOGIC
+// 2. HELPER FUNCTIONS
+// ==========================================
+
+// --- SMART IRISH HOLIDAY CALCULATOR ---
+function getIrishHolidays(year) {
+    const holidays = [];
+
+    // 1. Fixed Dates
+    holidays.push(`${year}-01-01`); // New Year's
+    holidays.push(`${year}-03-17`); // St Patrick's
+    holidays.push(`${year}-12-25`); // Christmas
+    holidays.push(`${year}-12-26`); // St Stephen's
+
+    // 2. St. Brigid's Day (1st Feb if Friday, else first Monday in Feb)
+    const feb1 = new Date(year, 1, 1);
+    if (feb1.getDay() === 5) { // Friday
+        holidays.push(`${year}-02-01`);
+    } else {
+        let d = new Date(year, 1, 1);
+        while (d.getDay() !== 1) d.setDate(d.getDate() + 1); // Find next Monday
+        holidays.push(d.toISOString().split('T')[0]);
+    }
+
+    // 3. Easter Monday Calculation
+    const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+    const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+    const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+    const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
+    const m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const month = Math.floor((h + l - 7 * m + 114) / 31);
+    const day = ((h + l - 7 * m + 114) % 31) + 1;
+    const easterSunday = new Date(year, month - 1, day);
+    const easterMonday = new Date(easterSunday);
+    easterMonday.setDate(easterMonday.getDate() + 1);
+    holidays.push(easterMonday.toISOString().split('T')[0]);
+
+    // 4. Floating Bank Holidays (First Monday of May, June, August)
+    [4, 5, 7].forEach(mIndex => { // 4=May, 5=Jun, 7=Aug
+        let d = new Date(year, mIndex, 1);
+        while (d.getDay() !== 1) d.setDate(d.getDate() + 1);
+        holidays.push(d.toISOString().split('T')[0]);
+    });
+
+    // 5. October Bank Holiday (Last Monday in October)
+    let octD = new Date(year, 10, 0); // Last day of Oct
+    while (octD.getDay() !== 1) octD.setDate(octD.getDate() - 1);
+    holidays.push(octD.toISOString().split('T')[0]);
+
+    return holidays;
+}
+
+function getContentEmoji(type) {
+    switch (type) {
+        case 'audio': return '🎧'; case 'video': return '🎥'; case 'simulator': return '⚡';
+        case 'assignment': return '📝'; case 'quiz': return '✅'; case 'url': return '🔗';
+        case 'file': return '📄'; default: return '📄';
+    }
+}
+
+function isAdmin() { return state.profile && ['instructor', 'super_admin'].includes(state.profile.global_role); }
+
+function getGradeInfo(score, total) {
+    if (!total || total === 0) return { pct: 0, label: 'No Data', color: 'bg-gray-100 text-gray-500' };
+    const pct = Math.round((score / total) * 100);
+    let label = 'Fail', color = 'bg-red-100 text-red-700';
+    if (pct >= 85) { label = 'Credit'; color = 'bg-purple-100 text-purple-700'; } 
+    else if (pct >= 70) { label = 'Pass'; color = 'bg-green-100 text-green-700'; }
+    return { pct, label, color };
+}
+
+// Global Content Renderer
+function renderContentItem(file, unitId, myWork) {
+    let emoji = getContentEmoji(file.type);
+    let actionHtml = '';
+    let descHtml = '';
+
+    if (file.data) {
+        if (file.data.description) descHtml = `<div class="text-sm text-gray-600 mt-2 ml-12 bg-white p-3 rounded border border-gray-200 shadow-sm">${file.data.description}</div>`;
+        if (file.data.dueDate) descHtml += `<div class="ml-12 mt-1 text-xs font-bold text-red-600 flex items-center gap-1"><i class="ph ph-calendar-warning"></i> Due: ${new Date(file.data.dueDate).toLocaleDateString()}</div>`;
+    }
+
+    if(file.type === 'assignment') {
+        if(file.file_url) descHtml += `<div class="ml-12 mt-2"><a href="${file.file_url}" target="_blank" class="text-xs text-blue-600 hover:underline flex items-center gap-1 font-medium"><i class="ph ph-file-arrow-down"></i> Download Brief</a></div>`;
+        if (isAdmin()) actionHtml = `<button onclick="event.stopPropagation(); assignmentManager.openGrading(${file.id})" class="text-xs bg-indigo-100 text-indigo-700 px-3 py-1 rounded border border-indigo-200 hover:bg-indigo-200 font-bold">Grade</button>`;
+        else {
+            const status = myWork[file.id] || 'Upload Work';
+            const btnColor = status === 'Submitted' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700 shadow-sm';
+            actionHtml = `<button onclick="event.stopPropagation(); assignmentManager.openSubmit(${file.id})" class="text-xs px-3 py-1 rounded border ${btnColor} font-medium">${status}</button>`;
+        }
+    } else if (file.type === 'quiz') {
+        if (isAdmin()) actionHtml = `<span class="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded">Quiz</span>`;
+        else {
+            const status = myWork[file.id] ? 'Retake Quiz' : 'Take Quiz';
+            actionHtml = `<button onclick="event.stopPropagation(); quizManager.takeQuiz(${file.id})" class="text-xs px-3 py-1 rounded bg-purple-600 text-white hover:bg-purple-700 shadow-sm font-medium">${status}</button>`;
+        }
+    }
+
+    // JSON Stringify for editing
+    const safeFile = JSON.stringify(file).replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+
+    return `
+    <div class="bg-white p-2 rounded-lg border border-gray-200 hover:shadow-md transition group">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3 cursor-pointer flex-1" onclick="courseManager.launchContent(${file.id}, '${file.type}', '${file.file_url}')">
+                <div class="h-8 w-8 flex items-center justify-center text-2xl grayscale group-hover:grayscale-0 transition-all">
+                    ${emoji}
+                </div>
+                <span class="font-medium text-sm text-gray-800 group-hover:text-teal-700 transition">
+                    ${file.title}
+                    ${!file.is_visible ? '<i class="ph ph-eye-slash text-red-400 text-xs ml-1"></i>' : ''}
+                </span>
+            </div>
+            <div class="flex items-center gap-3">
+                ${actionHtml}
+                ${isAdmin() ? `
+                    <div class="hidden group-hover:flex gap-1">
+                        <button onclick='contentModal.open(${unitId}, ${safeFile})' class="text-gray-400 hover:text-blue-500"><i class="ph ph-pencil-simple"></i></button>
+                        <button onclick="courseManager.deleteItem('content', ${file.id})" class="text-gray-400 hover:text-red-500"><i class="ph ph-trash"></i></button>
+                    </div>
+                ` : ''}
+            </div>
+        </div>
+        ${descHtml}
+    </div>`;
+}
+
+// ==========================================
+// 3. AUTH & UI LOGIC
 // ==========================================
 const auth = {
     init: async () => {
         const { data: { session } } = await sb.auth.getSession();
-        
-        sb.auth.onAuthStateChange(async (event, session) => {
-            if (event === 'PASSWORD_RECOVERY') {
-                const newPass = prompt("Enter your new password:");
-                if(newPass) {
-                    const { error } = await sb.auth.updateUser({ password: newPass });
-                    if(error) ui.toast("Error: " + error.message, "error");
-                    else {
-                        ui.toast("Password updated! Logging in...", "success");
-                        setTimeout(() => window.location.reload(), 1000);
-                    }
-                }
-            } else if (event === 'SIGNED_OUT') {
-                window.location.reload();
-            }
+        sb.auth.onAuthStateChange((e) => {
+            if (e === 'PASSWORD_RECOVERY') {
+                const p = prompt("New password:");
+                if(p) sb.auth.updateUser({ password: p }).then(({error}) => {
+                    ui.toast(error ? error.message : "Updated! Logging in...", error ? "error" : "success");
+                    if(!error) setTimeout(() => window.location.reload(), 1000);
+                });
+            } else if (e === 'SIGNED_OUT') window.location.reload();
         });
-
         if (session) {
             state.user = session.user;
             await auth.loadProfile();
@@ -49,50 +168,37 @@ const auth = {
         state.user = data.user;
         await auth.loadProfile();
         app.showApp();
-        ui.toast('Welcome back!', 'success');
     },
 
     resetPassword: async () => {
         const email = document.getElementById('email').value;
-        if(!email) return alert("Please enter your email address in the box first.");
-        
-        ui.toast("Sending reset link...", "info");
-        
-        const { error } = await sb.auth.resetPasswordForEmail(email, {
-            redirectTo: window.location.href 
-        });
-
-        if (error) ui.toast(error.message, 'error');
-        else ui.toast("Check your email for the reset link!", 'success');
+        if(!email) return alert("Please enter email.");
+        ui.toast("Sending link...", "info");
+        const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.href });
+        ui.toast(error ? error.message : "Check your email!", error ? 'error' : 'success');
     },
 
     loadProfile: async () => {
-        let { data, error } = await sb.from('profiles').select('*').eq('id', state.user.id).maybeSingle();
-        
+        let { data } = await sb.from('profiles').select('*').eq('id', state.user.id).maybeSingle();
         if (!data) {
             const { data: newProfile } = await sb.from('profiles').insert([{ id: state.user.id, email: state.user.email, global_role: 'student' }]).select().single();
             data = newProfile;
         }
-
-        if (data) {
-            state.profile = data;
-            document.getElementById('user-name').innerText = state.user.email;
-            document.getElementById('user-role').innerText = data.global_role.replace('_', ' ').toUpperCase();
-            
-            const isStaff = ['instructor', 'super_admin'].includes(data.global_role);
-            document.getElementById('tab-btn-reports').classList.remove('hidden');
-            document.getElementById('btn-new-course')?.classList.toggle('hidden', data.global_role !== 'super_admin');
-            
-            // Only instructors can add content
-            ['btn-add-section', 'btn-add-unit'].forEach(id => {
-                const el = document.getElementById(id);
-                if(el) el.classList.toggle('hidden', !isStaff);
-            });
-        }
+        state.profile = data;
+        document.getElementById('user-name').innerText = state.user.email;
+        document.getElementById('user-role').innerText = data.global_role.replace('_', ' ').toUpperCase();
+        
+        const isStaff = ['instructor', 'super_admin'].includes(data.global_role);
+        document.getElementById('tab-btn-reports').classList.remove('hidden');
+        document.getElementById('btn-new-course')?.classList.toggle('hidden', data.global_role !== 'super_admin');
+        ['btn-add-section', 'btn-add-unit'].forEach(id => {
+            const el = document.getElementById(id);
+            if(el) el.classList.toggle('hidden', !isStaff);
+        });
     },
 
     signOut: async () => {
-        try { await sb.auth.signOut(); } catch (e) { console.warn("Logout error:", e); } 
+        try { await sb.auth.signOut(); } catch (e) {} 
         finally { localStorage.clear(); window.location.reload(); }
     }
 };
@@ -121,7 +227,7 @@ const authUI = {
 };
 
 // ==========================================
-// 3. UI & NAVIGATION
+// 4. NAVIGATION
 // ==========================================
 const app = {
     showLogin: () => {
@@ -178,7 +284,7 @@ const ui = {
 };
 
 // ==========================================
-// 4. DASHBOARD
+// 5. DASHBOARD
 // ==========================================
 const dashboard = {
     showMyCoursesOnly: false,
@@ -195,55 +301,34 @@ const dashboard = {
         const myEnrollments = {}; 
         (enrollmentsReq.data || []).forEach(e => myEnrollments[e.course_id] = e.course_role);
 
-        // Filter Checkbox
-        const headerContainer = document.querySelector('#dashboard-content .flex.justify-between');
-        if (headerContainer && !document.getElementById('filter-my-courses')) {
+        const header = document.querySelector('#dashboard-content .flex.justify-between');
+        if (header && !document.getElementById('filter-my-courses')) {
             const filterDiv = document.createElement('div');
             filterDiv.className = "flex items-center gap-2 mr-4";
-            filterDiv.innerHTML = `
-                <input type="checkbox" id="filter-my-courses" class="w-4 h-4 text-teal-600 rounded focus:ring-teal-500 cursor-pointer" ${dashboard.showMyCoursesOnly ? 'checked' : ''}>
-                <label for="filter-my-courses" class="text-sm font-semibold text-gray-700 cursor-pointer select-none">My Courses Only</label>
-            `;
-            const btnNew = document.getElementById('btn-new-course');
-            headerContainer.insertBefore(filterDiv, btnNew);
-            document.getElementById('filter-my-courses').addEventListener('change', (e) => {
-                dashboard.showMyCoursesOnly = e.target.checked;
-                dashboard.loadCourses(); 
-            });
+            filterDiv.innerHTML = `<input type="checkbox" id="filter-my-courses" class="w-4 h-4 text-teal-600 rounded cursor-pointer"><label for="filter-my-courses" class="text-sm font-semibold text-gray-700 cursor-pointer">My Courses Only</label>`;
+            header.insertBefore(filterDiv, document.getElementById('btn-new-course'));
+            document.getElementById('filter-my-courses').onchange = (e) => { dashboard.showMyCoursesOnly = e.target.checked; dashboard.loadCourses(); };
         }
 
-        let displayCourses = courses;
-        if (dashboard.showMyCoursesOnly) {
-            displayCourses = courses.filter(c => myEnrollments[c.id]);
-        }
-
+        let displayCourses = dashboard.showMyCoursesOnly ? courses.filter(c => myEnrollments[c.id]) : courses;
         grid.innerHTML = '';
+        
         if (displayCourses.length === 0) {
-            grid.innerHTML = `<div class="col-span-full text-center py-12 bg-gray-50 rounded-lg border border-dashed border-gray-300"><i class="ph ph-books text-4xl text-gray-300 mb-2"></i><p class="text-gray-500 font-medium">No courses found.</p></div>`; 
-            return;
+            grid.innerHTML = `<div class="col-span-full text-center py-12 bg-gray-50 rounded-lg border border-dashed border-gray-300"><p class="text-gray-500 font-medium">No courses found.</p></div>`; return;
         }
         
         displayCourses.forEach(course => {
-            const userRole = myEnrollments[course.id]; 
-            const isEnrolled = !!userRole; 
+            const userRole = myEnrollments[course.id];
             const card = document.createElement('div');
             card.className = "bg-white rounded-lg shadow hover:shadow-lg transition cursor-pointer border border-transparent hover:border-teal-500 overflow-hidden flex flex-col h-full group relative";
             card.onclick = () => dashboard.openCourse(course);
             
-            let imgHtml = course.image_url 
-                ? `<div class="h-32 bg-cover bg-center" style="background-image: url('${course.image_url}')"></div>` 
-                : `<div class="h-32 bg-teal-100 flex items-center justify-center text-teal-600"><i class="ph ph-book text-4xl"></i></div>`;
-
-            if (isEnrolled) {
-                imgHtml += `<div class="absolute top-2 right-2 bg-teal-600 text-white text-[10px] font-bold px-2 py-1 rounded shadow-sm">ENROLLED</div>`;
-            }
+            let imgHtml = course.image_url ? `<div class="h-32 bg-cover bg-center" style="background-image: url('${course.image_url}')"></div>` : `<div class="h-32 bg-teal-100 flex items-center justify-center text-teal-600"><i class="ph ph-book text-4xl"></i></div>`;
+            if (userRole) imgHtml += `<div class="absolute top-2 right-2 bg-teal-600 text-white text-[10px] font-bold px-2 py-1 rounded shadow-sm">ENROLLED</div>`;
 
             let actions = '';
             if(state.profile.global_role === 'super_admin') {
-                const safeTitle = course.title.replace(/"/g, '&quot;');
-                actions = `<div class="flex gap-2 mt-auto pt-4 border-t border-gray-100"><button data-id="${course.id}" data-title="${safeTitle}" class="text-xs text-blue-600 hover:underline" onclick="event.stopPropagation(); entityModal.openFromEl(this, 'course')">Edit</button><button onclick="event.stopPropagation(); dashboard.deleteCourse(${course.id})" class="text-xs text-red-500 hover:underline">Delete</button></div>`;
-            } else if (userRole === 'student') {
-                actions = `<div class="mt-auto pt-4 flex justify-end"><button onclick="event.stopPropagation(); dashboard.resumeCourse(${course.id})" class="text-xs font-bold text-teal-600 bg-teal-50 px-3 py-1 rounded-full border border-teal-100 hover:bg-teal-100 flex items-center gap-1 transition-all opacity-0 group-hover:opacity-100"><i class="ph ph-play-circle"></i> Resume</button></div>`;
+                actions = `<div class="flex gap-2 mt-auto pt-4 border-t border-gray-100"><button data-id="${course.id}" data-title="${course.title.replace(/"/g, '&quot;')}" class="text-xs text-blue-600 hover:underline" onclick="event.stopPropagation(); entityModal.openFromEl(this, 'course')">Edit</button><button onclick="event.stopPropagation(); dashboard.deleteCourse(${course.id})" class="text-xs text-red-500 hover:underline">Delete</button></div>`;
             }
 
             card.innerHTML = `${imgHtml}<div class="p-5 flex flex-col flex-1"><h3 class="font-bold text-lg text-slate-800 mb-1">${course.title}</h3><p class="text-sm text-slate-500 line-clamp-2">${course.description || 'No description.'}</p>${actions}</div>`;
@@ -251,17 +336,7 @@ const dashboard = {
         });
     },
 
-    resumeCourse: async (courseId) => {
-        ui.toast("Resuming...", "info");
-        const { data: course } = await sb.from('courses').select('*').eq('id', courseId).single();
-        if(!course) return;
-        await dashboard.openCourse(course);
-        const { data: sections } = await sb.from('sections').select('*, modules(*)').eq('course_id', courseId).order('position');
-        if(sections && sections.length > 0 && sections[0].modules && sections[0].modules.length > 0) {
-            const firstMod = sections[0].modules[0];
-            courseManager.openModule(firstMod.id);
-        }
-    },
+    resumeCourse: async (courseId) => { /* Placeholder */ },
     
     openCourse: async (course) => {
         if (state.profile.global_role !== 'super_admin') {
@@ -271,16 +346,7 @@ const dashboard = {
         } else { state.courseRole = 'super_admin'; }
 
         const isStaff = ['instructor', 'super_admin'].includes(state.courseRole);
-        
-        // --- FIX: VISIBILITY TOGGLES ---
-        const teamBtn = document.getElementById('tab-btn-team');
-        const schedBtn = document.getElementById('tab-btn-schedule');
-        const addUnitBtn = document.getElementById('btn-add-unit');
-        
-        if(teamBtn) teamBtn.classList.toggle('hidden', !isStaff);
-        if(schedBtn) schedBtn.classList.toggle('hidden', !isStaff);
-        if(addUnitBtn) addUnitBtn.classList.toggle('hidden', !isStaff);
-        // -------------------------------
+        ['tab-btn-team', 'tab-btn-schedule', 'btn-add-unit'].forEach(id => document.getElementById(id)?.classList.toggle('hidden', !isStaff));
 
         state.activeCourse = course;
         state.activeModule = null;
@@ -298,38 +364,30 @@ const dashboard = {
     },
 
     deleteCourse: async (id) => {
-        if(confirm("Delete this course?")) { 
-            const { error } = await sb.from('courses').delete().eq('id', id); 
-            if(error) ui.toast(error.message, 'error');
-            else dashboard.loadCourses(); 
+        if(confirm("Delete?")) { 
+            await sb.from('courses').delete().eq('id', id); 
+            dashboard.loadCourses(); 
         }
     }
 };
 
 // ==========================================
-// 5. SYLLABUS & CONTENT (Full Logic)
+// 6. CONTENT & SYLLABUS MANAGER
 // ==========================================
 const courseManager = {
     loadSyllabus: async () => {
         const list = document.getElementById('syllabus-list');
         list.innerHTML = '<div class="p-4 text-center"><i class="ph ph-spinner animate-spin text-teal-600"></i></div>';
         
-        // Fetch everything, including nested units and content, for the scheduler
-        let query = sb.from('sections')
-            .select('*, modules(*, units(*, content(*)))') 
-            .eq('course_id', state.activeCourse.id)
-            .order('position', { ascending: true });
-            
+        let query = sb.from('sections').select('*, modules(*, units(*, content(*)))') 
+            .eq('course_id', state.activeCourse.id).order('position', { ascending: true });
         if(!isAdmin()) query = query.eq('is_visible', true);
 
         const { data: sections } = await query;
-
         list.innerHTML = '';
         state.structure = sections || []; 
 
-        if (!sections || sections.length === 0) {
-            list.innerHTML = '<div class="text-center text-gray-400 p-4 text-sm">No sections yet.</div>'; return;
-        }
+        if (!sections || sections.length === 0) { list.innerHTML = '<div class="text-center text-gray-400 p-4 text-sm">No sections yet.</div>'; return; }
 
         sections.forEach(section => {
             let modules = (section.modules || []).sort((a,b) => a.position - b.position);
@@ -338,22 +396,15 @@ const courseManager = {
             const sectionEl = document.createElement('div');
             sectionEl.className = "border-b border-gray-100 last:border-0";
             
-            // --- Render Section Header with Toggle ---
             sectionEl.innerHTML = `
                 <div class="flex justify-between items-center p-3 hover:bg-slate-50 group cursor-pointer" onclick="ui.toggleAccordion('${section.id}')">
                     <div class="flex items-center gap-2 font-bold text-xs text-gray-600 uppercase tracking-wide flex-1">
                         <i id="acc-icon-${section.id}" class="ph ph-caret-down transition-transform duration-200"></i>
                         <span class="truncate">${section.title}</span>
                     </div>
-                    
                     <div class="flex items-center gap-2" onclick="event.stopPropagation()">
                         ${isAdmin() ? `
-                            <label class="relative inline-flex items-center cursor-pointer group/toggle" title="Toggle Visibility">
-                                <input type="checkbox" class="sr-only peer" ${section.is_visible ? 'checked' : ''} 
-                                    onchange="courseManager.toggleVisibility('sections', ${section.id}, this.checked)">
-                                <div class="w-7 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-teal-600"></div>
-                            </label>
-
+                            <label class="relative inline-flex items-center cursor-pointer group/toggle"><input type="checkbox" class="sr-only peer" ${section.is_visible ? 'checked' : ''} onchange="courseManager.toggleVisibility('sections', ${section.id}, this.checked)"><div class="w-7 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:bg-teal-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all"></div></label>
                             <div class="hidden group-hover:flex gap-1 pl-2 border-l border-gray-200 ml-2">
                                 <button onclick="courseManager.moveItem('sections', ${section.id}, 'up')" class="text-gray-400 hover:text-teal-600 p-1"><i class="ph ph-arrow-up"></i></button>
                                 <button onclick="courseManager.moveItem('sections', ${section.id}, 'down')" class="text-gray-400 hover:text-teal-600 p-1"><i class="ph ph-arrow-down"></i></button>
@@ -364,23 +415,13 @@ const courseManager = {
                         ` : ''}
                     </div>
                 </div>
-                
                 <div id="acc-content-${section.id}" class="pl-4 pb-2 space-y-1 hidden">
                     ${modules.map(mod => `
                         <div class="p-2 rounded cursor-pointer text-sm text-gray-600 hover:bg-teal-50 hover:text-teal-700 flex justify-between items-center group transition" onclick="courseManager.openModule('${mod.id}')">
-                            <div class="flex items-center gap-2 flex-1">
-                                <i class="ph ph-folder-notch text-gray-400"></i> 
-                                <span class="font-medium truncate">${mod.title}</span>
-                            </div>
-                            
+                            <div class="flex items-center gap-2 flex-1"><i class="ph ph-folder-notch text-gray-400"></i><span class="truncate">${mod.title}</span></div>
                             <div class="flex items-center gap-3" onclick="event.stopPropagation()">
                                 ${isAdmin() ? `
-                                    <label class="relative inline-flex items-center cursor-pointer" title="Toggle Visibility">
-                                        <input type="checkbox" class="sr-only peer" ${mod.is_visible ? 'checked' : ''} 
-                                            onchange="courseManager.toggleVisibility('modules', ${mod.id}, this.checked)">
-                                        <div class="w-6 h-3.5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-teal-500"></div>
-                                    </label>
-
+                                    <label class="relative inline-flex items-center cursor-pointer"><input type="checkbox" class="sr-only peer" ${mod.is_visible ? 'checked' : ''} onchange="courseManager.toggleVisibility('modules', ${mod.id}, this.checked)"><div class="w-6 h-3.5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:bg-teal-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-2.5 after:w-2.5 after:transition-all"></div></label>
                                     <div class="hidden group-hover:flex gap-1 pl-2 border-l border-gray-200">
                                         <button onclick="courseManager.moveItem('modules', ${mod.id}, 'up')" class="text-gray-400 hover:text-teal-600"><i class="ph ph-arrow-up"></i></button>
                                         <button onclick="courseManager.moveItem('modules', ${mod.id}, 'down')" class="text-gray-400 hover:text-teal-600"><i class="ph ph-arrow-down"></i></button>
@@ -398,37 +439,223 @@ const courseManager = {
     },
 
     toggleVisibility: async (table, id, isVisible) => {
-        try {
-            await sb.from(table).update({ is_visible: isVisible }).eq('id', id);
-            ui.toast(`${table.slice(0, -1)} ${isVisible ? 'visible' : 'hidden'}`, 'success');
-        } catch(e) {
-            console.error(e);
-            ui.toast("Failed to update visibility", "error");
-        }
+        try { await sb.from(table).update({ is_visible: isVisible }).eq('id', id); ui.toast("Visibility updated", "success"); }
+        catch(e) { ui.toast("Error updating", "error"); }
     },
 
     updateHours: async (unitId, hours) => {
         try {
-            // Update Database
             await sb.from('units').update({ total_hours_required: hours }).eq('id', unitId);
-            
-            // Update Local State instantly (so scheduler math works immediately)
-            state.structure.forEach(s => 
-                s.modules?.forEach(m => 
-                    m.units?.forEach(u => {
-                        if(u.id == unitId) u.total_hours_required = parseFloat(hours);
-                    })
-                )
-            );
+            state.structure.forEach(s => s.modules?.forEach(m => m.units?.forEach(u => { if(u.id == unitId) u.total_hours_required = parseFloat(hours); })));
+            if(!document.getElementById('tab-schedule').classList.contains('hidden')) schedulerManager.renderSidebar(); 
+        } catch (e) { ui.toast("Error updating hours", "error"); }
+    },
+    // ... existing updateHours function ...
 
-            // Refresh Scheduler Sidebar if active
-            if(!document.getElementById('tab-schedule').classList.contains('hidden')) {
-                schedulerManager.renderSidebar(); 
-            }
-        } catch (e) {
-            console.error(e);
-            ui.toast("Failed to update hours", "error");
-        }
+    // --- PASTE THIS BLOCK INSIDE courseManager ---
+    
+    updateEntity: async (table, id, field, value) => {
+        await sb.from(table).update({ [field]: value }).eq('id', id);
+    },
+
+    bulkCreate: async (type, parentId) => {
+        const title = prompt(`Enter ${type} title:`);
+        if(!title) return;
+        
+        const payload = { title, is_visible: true };
+        if(type === 'section') payload.course_id = state.activeCourse.id;
+        else if(type === 'module') payload.section_id = parentId;
+        else if(type === 'unit') { payload.module_id = parentId; payload.total_hours_required = 0; }
+        
+        await sb.from(type + 's').insert([payload]);
+        // Refresh the modal
+        document.querySelector('.fixed.inset-0').remove(); 
+        courseManager.openBulkEdit();
+    },
+
+    openBulkEdit: async () => {
+        const { data: sections } = await sb.from('sections')
+            .select('id, title, position, modules(id, title, position, units(id, title, total_hours_required, position))')
+            .eq('course_id', state.activeCourse.id)
+            .order('position', { ascending: true });
+
+        // Flatten hierarchy for table view
+        let rows = [];
+        sections?.forEach(sec => {
+            rows.push({ type: 'section', id: sec.id, title: sec.title, indent: 0 });
+            rows.push({ type: 'btn-module', parentId: sec.id, indent: 1 }); // Add Module Button
+
+            sec.modules?.sort((a,b)=>a.position-b.position).forEach(mod => {
+                rows.push({ type: 'module', id: mod.id, title: mod.title, indent: 1 });
+                rows.push({ type: 'btn-unit', parentId: mod.id, indent: 2 }); // Add Unit Button
+
+                mod.units?.sort((a,b)=>a.position-b.position).forEach(unit => {
+                    rows.push({ type: 'unit', id: unit.id, title: unit.title, hours: unit.total_hours_required, indent: 2 });
+                });
+            });
+        });
+        rows.push({ type: 'btn-section', indent: 0 }); // Add Section Button
+
+        const modal = document.createElement('div');
+        modal.className = "fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-8 fade-in";
+        modal.innerHTML = `
+            <div class="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col">
+                <div class="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-xl">
+                    <h3 class="font-bold text-lg">Bulk Edit Content</h3>
+                    <button onclick="this.closest('.fixed').remove(); courseManager.loadSyllabus();" class="text-gray-500 hover:text-red-500"><i class="ph ph-x text-xl"></i></button>
+                </div>
+                <div class="flex-1 overflow-y-auto p-0">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-100 text-gray-600 sticky top-0 z-10 shadow-sm">
+                            <tr><th class="p-3 w-24 pl-6">Type</th><th class="p-3">Title</th><th class="p-3 w-32">Hours</th></tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            ${rows.map(row => {
+                                if(row.type.startsWith('btn-')) {
+                                    const itemType = row.type.replace('btn-', '');
+                                    return `<tr class="bg-slate-50 hover:bg-slate-100"><td></td><td class="p-2"><button onclick="courseManager.bulkCreate('${itemType}', ${row.parentId || 0})" style="margin-left: ${row.indent * 1.5}rem" class="text-xs text-teal-600 hover:text-teal-800 font-bold flex items-center gap-1 px-2 py-1 rounded hover:bg-teal-50 border border-transparent hover:border-teal-200 transition"><i class="ph ph-plus-circle"></i> Add ${itemType.charAt(0).toUpperCase() + itemType.slice(1)}</button></td><td></td></tr>`;
+                                }
+                                const typeColor = row.type === 'section' ? 'bg-gray-200 text-gray-800' : (row.type === 'module' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800');
+                                const table = row.type + 's'; 
+                                return `<tr class="bg-white hover:bg-slate-50 transition border-b border-gray-100">
+                                    <td class="p-2 pl-4 align-middle"><span class="text-[10px] font-bold ${typeColor} px-2 py-1 rounded uppercase tracking-wider">${row.type}</span></td>
+                                    <td class="p-2"><div style="padding-left: ${row.indent * 1.5}rem" class="flex items-center"><input type="text" class="w-full bg-transparent border-b border-transparent hover:border-gray-300 focus:border-teal-500 focus:outline-none py-1 px-2 font-medium text-gray-700" value="${row.title}" onchange="courseManager.updateEntity('${table}', ${row.id}, 'title', this.value)"></div></td>
+                                    <td class="p-2">${row.type === 'unit' ? `<div class="flex items-center gap-1"><input type="number" step="0.5" class="border p-1 rounded w-20 text-center bg-white focus:ring-2 focus:ring-teal-500 outline-none" value="${row.hours || 0}" onchange="courseManager.updateEntity('units', ${row.id}, 'total_hours_required', this.value)"><span class="text-xs text-gray-400">h</span></div>` : ''}</td>
+                                </tr>`;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="p-4 border-t bg-gray-50 flex justify-end">
+                    <button onclick="this.closest('.fixed').remove(); courseManager.loadSyllabus();" class="bg-teal-600 text-white px-6 py-2 rounded shadow hover:bg-teal-700 font-bold">Done & Refresh</button>
+                </div>
+            </div>`;
+        document.body.appendChild(modal);
+    },
+    // --- END PASTE ---
+
+    // BULK CREATE HELPER
+    bulkCreate: async (type, parentId) => {
+        const title = prompt(`Enter ${type} title:`);
+        if(!title) return;
+        
+        const payload = { title, is_visible: true };
+        if(type === 'section') payload.course_id = state.activeCourse.id;
+        else if(type === 'module') payload.section_id = parentId;
+        else if(type === 'unit') { payload.module_id = parentId; payload.total_hours_required = 0; }
+        
+        await sb.from(type + 's').insert([payload]);
+        document.querySelector('.fixed.inset-0').remove(); // Close modal
+        courseManager.openBulkEdit(); // Re-open to refresh
+    },
+    
+    
+    updateEntity: async (table, id, field, value) => { await sb.from(table).update({ [field]: value }).eq('id', id); },
+
+    openBulkEdit: async () => {
+        // 1. Fetch Hierarchy for ACTIVE COURSE ONLY
+        const { data: sections } = await sb.from('sections')
+            .select('id, title, position, modules(id, title, position, units(id, title, total_hours_required, position))')
+            .eq('course_id', state.activeCourse.id)
+            .order('position', { ascending: true });
+
+        // 2. Flatten for display
+        let rows = [];
+        sections?.forEach(sec => {
+            rows.push({ type: 'section', id: sec.id, title: sec.title, indent: 0 });
+            rows.push({ type: 'btn-module', parentId: sec.id, indent: 1 }); // Button to add Module
+
+            sec.modules?.sort((a,b)=>a.position-b.position).forEach(mod => {
+                rows.push({ type: 'module', id: mod.id, title: mod.title, indent: 1 });
+                rows.push({ type: 'btn-unit', parentId: mod.id, indent: 2 }); // Button to add Unit
+
+                mod.units?.sort((a,b)=>a.position-b.position).forEach(unit => {
+                    rows.push({ type: 'unit', id: unit.id, title: unit.title, hours: unit.total_hours_required, indent: 2 });
+                });
+            });
+        });
+        rows.push({ type: 'btn-section', indent: 0 }); // Button to add Section at bottom
+
+        // 3. Render Modal
+        const modal = document.createElement('div');
+        modal.className = "fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-8 fade-in";
+        modal.innerHTML = `
+            <div class="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col">
+                <div class="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-xl">
+                    <h3 class="font-bold text-lg">Bulk Edit: ${state.activeCourse.title}</h3>
+                    <button onclick="this.closest('.fixed').remove(); courseManager.loadSyllabus();" class="text-gray-500 hover:text-red-500"><i class="ph ph-x text-xl"></i></button>
+                </div>
+                <div class="flex-1 overflow-y-auto p-0">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-100 text-gray-600 sticky top-0 z-10 shadow-sm">
+                            <tr>
+                                <th class="p-3 w-24 pl-6">Type</th>
+                                <th class="p-3">Title</th>
+                                <th class="p-3 w-32">Hours</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            ${rows.map(row => {
+                                // RENDER BUTTON ROWS
+                                if(row.type.startsWith('btn-')) {
+                                    const itemType = row.type.replace('btn-', '');
+                                    return `
+                                        <tr class="bg-slate-50 hover:bg-slate-100">
+                                            <td></td>
+                                            <td class="p-2">
+                                                <button onclick="courseManager.bulkCreate('${itemType}', ${row.parentId || 0})" 
+                                                    style="margin-left: ${row.indent * 1.5}rem"
+                                                    class="text-xs text-teal-600 hover:text-teal-800 font-bold flex items-center gap-1 px-2 py-1 rounded hover:bg-teal-50 border border-transparent hover:border-teal-200 transition">
+                                                    <i class="ph ph-plus-circle"></i> Add ${itemType.charAt(0).toUpperCase() + itemType.slice(1)}
+                                                </button>
+                                            </td>
+                                            <td></td>
+                                        </tr>`;
+                                }
+
+                                // RENDER EDIT ROWS
+                                const isUnit = row.type === 'unit';
+                                const typeLabel = row.type.charAt(0).toUpperCase() + row.type.slice(1);
+                                const typeColor = row.type === 'section' ? 'bg-gray-200 text-gray-800' : (row.type === 'module' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800');
+                                const bgRow = row.type === 'section' ? 'bg-gray-100' : 'bg-white';
+                                const table = row.type + 's'; 
+
+                                return `
+                                <tr class="${bgRow} hover:bg-slate-50 transition border-b border-gray-100">
+                                    <td class="p-2 pl-4 align-middle">
+                                        <span class="text-[10px] font-bold ${typeColor} px-2 py-1 rounded uppercase tracking-wider">${typeLabel}</span>
+                                    </td>
+                                    <td class="p-2">
+                                        <div style="padding-left: ${row.indent * 1.5}rem" class="relative flex items-center">
+                                            ${row.indent > 0 ? `<div class="absolute left-0 top-1/2 -translate-y-1/2 w-[${row.indent * 1.5}rem] h-px bg-gray-300"></div>` : ''}
+                                            <input type="text" 
+                                                class="w-full bg-transparent border-b border-transparent hover:border-gray-300 focus:border-teal-500 focus:outline-none py-1 px-2 font-medium text-gray-700"
+                                                value="${row.title}"
+                                                onchange="courseManager.updateEntity('${table}', ${row.id}, 'title', this.value)">
+                                        </div>
+                                    </td>
+                                    <td class="p-2">
+                                        ${isUnit ? `
+                                            <div class="flex items-center gap-1">
+                                                <input type="number" step="0.5" 
+                                                    class="border p-1 rounded w-20 text-center bg-white focus:ring-2 focus:ring-teal-500 outline-none"
+                                                    value="${row.hours || 0}"
+                                                    onchange="courseManager.updateEntity('units', ${row.id}, 'total_hours_required', this.value)">
+                                                <span class="text-xs text-gray-400">h</span>
+                                            </div>
+                                        ` : ''}
+                                    </td>
+                                </tr>`;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="p-4 border-t bg-gray-50 flex justify-end">
+                    <button onclick="this.closest('.fixed').remove(); courseManager.loadSyllabus();" class="bg-teal-600 text-white px-6 py-2 rounded shadow hover:bg-teal-700 font-bold">Done & Refresh</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
     },
 
     openModule: async (moduleId) => {
@@ -436,14 +663,28 @@ const courseManager = {
         state.activeModule = module;
         
         document.getElementById('current-module-title').innerHTML = `<span class="flex items-center gap-2 text-teal-900 font-bold"><i class="ph ph-folder-open"></i> ${module.title}</span>`;
-        if(isAdmin()) document.getElementById('btn-add-unit').classList.remove('hidden');
+        if(isAdmin()) {
+            document.getElementById('btn-add-unit').classList.remove('hidden');
+            
+            // Insert Bulk Edit Button
+            const headerContainer = document.getElementById('current-module-title').parentElement;
+            if(!document.getElementById('btn-bulk-edit')) {
+                const bulkBtn = document.createElement('button');
+                bulkBtn.id = 'btn-bulk-edit';
+                bulkBtn.className = "text-xs bg-indigo-50 text-indigo-700 px-3 py-1 rounded border border-indigo-200 mr-2 hover:bg-indigo-100 font-bold flex items-center gap-1";
+                bulkBtn.innerHTML = `<i class="ph ph-list-dashes"></i> Bulk Edit`;
+                bulkBtn.onclick = () => courseManager.openBulkEdit();
+                
+                const addBtn = document.getElementById('btn-add-unit');
+                headerContainer.insertBefore(bulkBtn, addBtn);
+            }
+        }
 
         const container = document.getElementById('unit-container');
         container.innerHTML = '<div class="text-gray-400 p-8 flex justify-center"><i class="ph ph-spinner animate-spin text-2xl"></i></div>';
-
+        
         let query = sb.from('units').select('*, content(*)').eq('module_id', moduleId).order('position', { ascending: true });
         if(!isAdmin()) query = query.eq('is_visible', true); 
-
         const { data: units } = await query;
         
         let myWork = {};
@@ -455,57 +696,24 @@ const courseManager = {
         }
 
         container.innerHTML = '';
-        if (!units || units.length === 0) {
-            container.innerHTML = '<div class="flex flex-col items-center justify-center h-64 text-gray-400"><i class="ph ph-tray text-4xl mb-2"></i><p>This module is empty.</p></div>';
-            return;
-        }
+        if (!units || units.length === 0) { container.innerHTML = '<div class="flex flex-col items-center justify-center h-64 text-gray-400"><i class="ph ph-tray text-4xl mb-2"></i><p>This module is empty.</p></div>'; return; }
 
         units.forEach((unit, index) => {
             const isOpen = index === 0;
             const unitEl = document.createElement('div');
             unitEl.className = "mb-4 bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden";
-
             unitEl.innerHTML = `
                 <div class="flex justify-between items-center p-4 bg-white cursor-pointer hover:bg-gray-50 border-b border-gray-100" onclick="ui.toggleAccordion('unit-${unit.id}')">
-                    <div class="flex items-center gap-2 flex-1">
-                        <i id="acc-icon-unit-${unit.id}" class="ph ph-caret-down text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}"></i>
-                        <h3 class="font-bold text-slate-700 text-lg">${unit.title}</h3>
-                    </div>
-                    
+                    <div class="flex items-center gap-2 flex-1"><i id="acc-icon-unit-${unit.id}" class="ph ph-caret-down text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}"></i><h3 class="font-bold text-slate-700 text-lg">${unit.title}</h3></div>
                     <div class="flex items-center gap-3" onclick="event.stopPropagation()">
-                        ${isAdmin() ? `
-                            <div class="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded border border-gray-200" title="Total Hours Required">
-                                <i class="ph ph-clock text-gray-400 text-xs"></i>
-                                <input type="number" step="0.5" class="w-12 text-xs bg-transparent outline-none font-bold text-gray-600 text-right" 
-                                    value="${unit.total_hours_required || 0}" 
-                                    onchange="courseManager.updateHours(${unit.id}, this.value)">
-                                <span class="text-[10px] text-gray-400">h</span>
-                            </div>
-
-                            <label class="relative inline-flex items-center cursor-pointer mr-2" title="Toggle Visibility">
-                                <input type="checkbox" class="sr-only peer" ${unit.is_visible ? 'checked' : ''} 
-                                    onchange="courseManager.toggleVisibility('units', ${unit.id}, this.checked)">
-                                <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-teal-600"></div>
-                            </label>
-
-                            <div class="flex gap-1 border-l pl-2 border-gray-200">
-                                <button onclick="courseManager.moveItem('units', ${unit.id}, 'up')" class="text-gray-400 hover:text-teal-600 p-1"><i class="ph ph-arrow-up"></i></button>
-                                <button onclick="courseManager.moveItem('units', ${unit.id}, 'down')" class="text-gray-400 hover:text-teal-600 p-1"><i class="ph ph-arrow-down"></i></button>
-                                <button onclick="courseManager.addContent(${unit.id})" class="text-xs bg-teal-50 text-teal-700 px-3 py-1 rounded hover:bg-teal-100 border border-teal-200 font-medium">+ Content</button>
-                                <button onclick="courseManager.editItem('units', ${unit.id}, '${unit.title}')" class="text-gray-400 hover:text-blue-500 p-1"><i class="ph ph-pencil-simple text-lg"></i></button>
-                                <button onclick="courseManager.deleteItem('units', ${unit.id})" class="text-gray-400 hover:text-red-500 p-1"><i class="ph ph-trash text-lg"></i></button>
-                            </div>
-                        ` : ''}
+                        ${isAdmin() ? `<div class="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded border border-gray-200" title="Total Hours Required"><i class="ph ph-clock text-gray-400 text-xs"></i><input type="number" step="0.5" class="w-12 text-xs bg-transparent outline-none font-bold text-gray-600 text-right" value="${unit.total_hours_required || 0}" onchange="courseManager.updateHours(${unit.id}, this.value)"><span class="text-[10px] text-gray-400">h</span></div><label class="relative inline-flex items-center cursor-pointer mr-2"><input type="checkbox" class="sr-only peer" ${unit.is_visible ? 'checked' : ''} onchange="courseManager.toggleVisibility('units', ${unit.id}, this.checked)"><div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:bg-teal-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all"></div></label><div class="flex gap-1 border-l pl-2 border-gray-200"><button onclick="courseManager.moveItem('units', ${unit.id}, 'up')" class="text-gray-400 hover:text-teal-600 p-1"><i class="ph ph-arrow-up"></i></button><button onclick="courseManager.moveItem('units', ${unit.id}, 'down')" class="text-gray-400 hover:text-teal-600 p-1"><i class="ph ph-arrow-down"></i></button><button onclick="courseManager.addContent(${unit.id})" class="text-xs bg-teal-50 text-teal-700 px-3 py-1 rounded hover:bg-teal-100 border border-teal-200 font-medium">+ Content</button><button onclick="courseManager.editItem('units', ${unit.id}, '${unit.title}')" class="text-gray-400 hover:text-blue-500 p-1"><i class="ph ph-pencil-simple text-lg"></i></button><button onclick="courseManager.deleteItem('units', ${unit.id})" class="text-gray-400 hover:text-red-500 p-1"><i class="ph ph-trash text-lg"></i></button></div>` : ''}
                     </div>
                 </div>
                 <div id="acc-content-unit-${unit.id}" class="${isOpen ? '' : 'hidden'} bg-slate-50 p-4 space-y-3"></div>
             `;
             
             const contentContainer = unitEl.querySelector(`#acc-content-unit-${unit.id}`);
-            
-            if(unit.content) {
-                if(!isAdmin()) unit.content = unit.content.filter(c => c.is_visible);
-            }
+            if(unit.content && !isAdmin()) unit.content = unit.content.filter(c => c.is_visible);
 
             if(unit.content && unit.content.length > 0) {
                 unit.content.sort((a,b) => a.position - b.position);
@@ -516,29 +724,14 @@ const courseManager = {
                     if(groups[type].length === 0) return;
                     const groupTitle = type.charAt(0).toUpperCase() + type.slice(1) + 's';
                     const groupIcon = getContentEmoji(type); 
-                    const groupHTML = `
-                        <details class="group/nested bg-white border border-gray-200 rounded-lg overflow-hidden mb-2" open>
-                            <summary class="flex justify-between items-center p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 list-none">
-                                <span class="font-bold text-sm text-gray-700 flex items-center gap-2">
-                                    ${groupIcon} ${groupTitle} <span class="bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full">${groups[type].length}</span>
-                                </span>
-                                <i class="ph ph-caret-down text-gray-400 transition-transform group-open/nested:rotate-180"></i>
-                            </summary>
-                            <div class="p-3 space-y-2 border-t border-gray-100">
-                                ${groups[type].map(file => renderContentItem(file, unit.id, myWork)).join('')}
-                            </div>
-                        </details>
-                    `;
-                    contentContainer.innerHTML += groupHTML;
+                    contentContainer.innerHTML += `<details class="group/nested bg-white border border-gray-200 rounded-lg overflow-hidden mb-2" open><summary class="flex justify-between items-center p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 list-none"><span class="font-bold text-sm text-gray-700 flex items-center gap-2">${groupIcon} ${groupTitle} <span class="bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full">${groups[type].length}</span></span><i class="ph ph-caret-down text-gray-400 transition-transform group-open/nested:rotate-180"></i></summary><div class="p-3 space-y-2 border-t border-gray-100">${groups[type].map(file => renderContentItem(file, unit.id, myWork)).join('')}</div></details>`;
                 });
-            } else {
-                contentContainer.innerHTML = '<p class="text-sm text-gray-400 italic pl-2">No content yet.</p>';
-            }
+            } else { contentContainer.innerHTML = '<p class="text-sm text-gray-400 italic pl-2">No content yet.</p>'; }
             container.appendChild(unitEl);
         });
     },
 
-    moveItem: async (table, id, direction) => { 
+    moveItem: async (table, id, direction) => { /* Same as before */ 
         let query = sb.from(table).select('id, position');
         if (table === 'sections') query = query.eq('course_id', state.activeCourse.id);
         else if (table === 'modules') {
@@ -549,23 +742,18 @@ const courseManager = {
             const { data: c } = await sb.from('content').select('unit_id').eq('id', id).single();
             if(c) query = query.eq('unit_id', c.unit_id);
         }
-        
         const { data: items } = await query.order('position', { ascending: true });
         const sorted = items.map((item, idx) => ({ ...item, position: idx }));
         const index = sorted.findIndex(i => i.id === id);
         if (index === -1) return;
         const neighborIndex = direction === 'up' ? index - 1 : index + 1;
         if (neighborIndex < 0 || neighborIndex >= sorted.length) return;
-        
         const temp = sorted[index].position;
         sorted[index].position = sorted[neighborIndex].position;
         sorted[neighborIndex].position = temp;
-
         for(const item of sorted) await sb.from(table).update({ position: item.position }).eq('id', item.id);
-        
         if (table === 'units' || table === 'content') courseManager.openModule(state.activeModule.id); else courseManager.loadSyllabus();
     },
-
     editItem: async (table, id, currentTitle) => {
         const newTitle = prompt(`Rename ${table.slice(0, -1)}:`, currentTitle);
         if(!newTitle || newTitle === currentTitle) return;
@@ -574,450 +762,113 @@ const courseManager = {
     },
     
     launchContent: async (id, type, url) => {
-        const { data: content } = await sb.from('content').select('allow_download').eq('id', id).single();
-        const allowDl = content ? content.allow_download : false;
-        sb.from('activity_logs').insert([{ user_id: state.user.id, content_id: id, action_type: 'viewed' }]).then(()=>{});
-        
-        const isStaff = isAdmin();
-        const canDownload = isStaff || allowDl; 
+        // YOUTUBE FIX: Open directly in new tab
+        if (url && (url.includes('youtube.com') || url.includes('youtu.be'))) { window.open(url, '_blank'); return; }
 
-        if(type === 'simulator') {
-            const cleanUrl = url.split('?')[0]; 
-            const finalLink = `${cleanUrl}?auth=msletb_secure_launch&uid=${state.user.id}&cid=${id}`;
-            window.open(finalLink, '_blank');
-        }
+        const { data: content } = await sb.from('content').select('allow_download').eq('id', id).single();
+        sb.from('activity_logs').insert([{ user_id: state.user.id, content_id: id, action_type: 'viewed' }]).then(()=>{});
+        const canDownload = isAdmin() || (content && content.allow_download);
+
+        if(type === 'simulator') window.open(`${url.split('?')[0]}?auth=msletb_secure_launch&uid=${state.user.id}&cid=${id}`, '_blank');
         else if (type === 'audio') { 
-            const modal = document.getElementById('modal-audio');
-            const player = document.getElementById('audio-player');
-            if(modal && player) {
-                player.src = url;
-                modal.classList.remove('hidden');
-                if(!canDownload) player.setAttribute('controlsList', 'nodownload'); 
-                else player.removeAttribute('controlsList');
-            }
+            const p = document.getElementById('audio-player'); p.src = url; document.getElementById('modal-audio').classList.remove('hidden');
+            if(!canDownload) p.setAttribute('controlsList', 'nodownload'); else p.removeAttribute('controlsList');
         }
-        else if (type === 'file' || type === 'video') {
-            courseManager.openViewer(url, type, canDownload);
-        }
-        else if (type === 'assignment') {
-            isAdmin() ? assignmentManager.openGrading(id) : assignmentManager.openSubmit(id);
-        }
-        else if (type === 'quiz') {
-            isAdmin() ? alert("Admins cannot take quizzes.") : quizManager.takeQuiz(id);
-        }
-        else if (url) {
-            window.open(url, '_blank');
-        }
+        else if (type === 'file' || type === 'video') courseManager.openViewer(url, type, canDownload);
+        else if (type === 'assignment') isAdmin() ? assignmentManager.openGrading(id) : assignmentManager.openSubmit(id);
+        else if (type === 'quiz') isAdmin() ? alert("Admins cannot take quizzes.") : quizManager.takeQuiz(id);
+        else if (url) window.open(url, '_blank');
     },
 
     openViewer: (url, type, canDownload) => {
         const modal = document.getElementById('modal-viewer');
         const body = document.getElementById('viewer-body');
         const dlBtn = document.getElementById('viewer-download-btn');
-        const titleEl = document.getElementById('viewer-title');
         modal.classList.remove('hidden');
-        if(dlBtn) {
-            if (canDownload) { dlBtn.classList.remove('hidden'); dlBtn.href = url; } 
-            else { dlBtn.classList.add('hidden'); dlBtn.href = '#'; }
-        }
+        if(dlBtn) { if (canDownload) { dlBtn.classList.remove('hidden'); dlBtn.href = url; } else { dlBtn.classList.add('hidden'); dlBtn.href = '#'; } }
         body.innerHTML = '<div class="text-white flex items-center justify-center h-full"><i class="ph ph-spinner animate-spin text-4xl"></i></div>'; 
-        const cleanUrl = url.split('?')[0];
-        const ext = cleanUrl.split('.').pop().toLowerCase();
-        let fileName = url.split('/').pop().split('?')[0];
+        const ext = url.split('?')[0].split('.').pop().toLowerCase();
         
-        if (url.includes('youtube.com') || url.includes('youtu.be')) {
-            fileName = "YouTube Video"; 
-            let videoId = url.includes('v=') ? url.split('v=')[1].split('&')[0] : url.split('/').pop();
-            body.innerHTML = `<iframe src="https://www.youtube.com/embed/${videoId}" class="w-full h-full border-0" allowfullscreen></iframe>`;
+        if (type === 'video' || ['mp4', 'webm'].includes(ext)) {
+            body.innerHTML = `<video src="${url}" controls class="max-h-full max-w-full shadow-lg rounded"></video>`;
+        } else if (['pdf', 'jpg', 'png'].includes(ext)) {
+            body.innerHTML = `<iframe src="${url}" class="w-full h-full border-0 bg-white"></iframe>`;
         } else {
-            if(titleEl) titleEl.innerText = decodeURIComponent(fileName);
-            if (type === 'video' || ['mp4', 'webm'].includes(ext)) {
-                body.innerHTML = `<video src="${url}" controls class="max-h-full max-w-full shadow-lg rounded"></video>`;
-            } else if (['pdf', 'jpg', 'png'].includes(ext)) {
-                body.innerHTML = `<iframe src="${url}" class="w-full h-full border-0 bg-white"></iframe>`;
-            } else {
-                body.innerHTML = `<div class="text-white p-8">File type not supported for preview. <a href="${url}" target="_blank" class="underline">Download</a></div>`;
-            }
+            body.innerHTML = `<div class="text-white p-8">File type not supported for preview. <a href="${url}" target="_blank" class="underline">Download</a></div>`;
         }
     },
-
     closeViewer: () => { document.getElementById('modal-viewer').classList.add('hidden'); document.getElementById('viewer-body').innerHTML = ''; },
     closeAudio: () => { const m = document.getElementById('modal-audio'); const p = document.getElementById('audio-player'); if(p){p.pause(); p.currentTime=0;} if(m) m.classList.add('hidden'); },
     addUnit: async () => { if(!state.activeModule) return; const t = prompt("Unit Title:"); if(t) { await sb.from('units').insert([{ module_id: state.activeModule.id, title: t }]); courseManager.openModule(state.activeModule.id); }},
     addContent: (unitId) => contentModal.open(unitId),
     deleteItem: async (table, id) => { if(confirm("Delete?")) { await sb.from(table).delete().eq('id', id); if(table==='units'||table==='content') courseManager.openModule(state.activeModule.id); else courseManager.loadSyllabus(); } },
-    
-    // Team Logic
-    loadTeam: async () => {
-        const el = document.getElementById('tab-team');
-        el.innerHTML = '<p>Loading...</p>';
+    loadTeam: async () => { 
+        const el = document.getElementById('tab-team'); el.innerHTML = '<p>Loading...</p>';
         const { data: roster } = await sb.from('enrollments').select('*, profiles(email)').eq('course_id', state.activeCourse.id);
         const { data: invites } = await sb.from('invitations').select('*').eq('course_id', state.activeCourse.id);
-        
-        let html = `<div class="flex justify-between mb-6"><h2 class="text-xl font-bold">Class Roster</h2><div class="flex gap-2"><select id="role-in" class="border p-2 rounded text-sm"><option value="student">Student</option><option value="instructor">Instructor</option></select><input id="email-in" placeholder="Email Address" class="border p-2 rounded text-sm w-64"><button onclick="courseManager.enroll()" class="bg-teal-600 text-white px-4 py-2 rounded text-sm font-bold shadow-sm">+ Invite</button></div></div>`;
-        html += `<div class="bg-white rounded-lg border border-gray-200 overflow-hidden"><table class="w-full text-sm text-left"><thead class="bg-gray-50 text-gray-500 uppercase font-semibold"><tr><th class="p-4">Email</th><th class="p-4">Role</th><th class="p-4">Status</th><th class="p-4"></th></tr></thead><tbody class="divide-y divide-gray-100">`;
-        
+        let html = `<div class="flex justify-between mb-6"><h2 class="text-xl font-bold">Class Roster</h2><div class="flex gap-2"><select id="role-in" class="border p-2 rounded text-sm"><option value="student">Student</option><option value="instructor">Instructor</option></select><input id="email-in" placeholder="Email Address" class="border p-2 rounded text-sm w-64"><button onclick="courseManager.enroll()" class="bg-teal-600 text-white px-4 py-2 rounded text-sm font-bold shadow-sm">+ Invite</button></div></div><div class="bg-white rounded-lg border border-gray-200 overflow-hidden"><table class="w-full text-sm text-left"><thead class="bg-gray-50 text-gray-500 uppercase font-semibold"><tr><th class="p-4">Email</th><th class="p-4">Role</th><th class="p-4">Status</th><th class="p-4"></th></tr></thead><tbody class="divide-y divide-gray-100">`;
         invites?.forEach(i => html += `<tr class="bg-yellow-50"><td class="p-4">${i.email}</td><td class="p-4 uppercase text-xs font-bold">${i.role}</td><td class="p-4"><span class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs font-bold">Invited</span></td><td class="p-4"><button onclick="courseManager.delInvite(${i.id})" class="text-red-400 hover:text-red-600"><i class="ph ph-x text-lg"></i></button></td></tr>`);
         roster?.forEach(m => html += `<tr><td class="p-4 font-medium text-gray-800">${m.profiles?.email || 'Unknown'}</td><td class="p-4"><span class="px-2 py-1 rounded text-xs font-bold ${m.course_role==='instructor'?'bg-purple-100 text-purple-700':'bg-blue-100 text-blue-700'}">${m.course_role.toUpperCase()}</span></td><td class="p-4"><span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">Active</span></td><td class="p-4 text-right">${isAdmin() && m.user_id !== state.user.id ? `<button onclick="courseManager.delUser('${m.user_id}')" class="text-red-400 hover:text-red-600"><i class="ph ph-trash text-lg"></i></button>` : ''}</td></tr>`);
         html += `</tbody></table></div>`; el.innerHTML = html;
     },
     
-    enroll: async () => {
-        const email = document.getElementById('email-in').value; const role = document.getElementById('role-in').value;
-        if(!email) return;
-        const { data: u } = await sb.from('profiles').select('id').eq('email', email).maybeSingle();
-        if(u) { await sb.from('enrollments').insert([{course_id:state.activeCourse.id, user_id:u.id, course_role:role}]); ui.toast("Enrolled!"); }
-        else { await sb.from('invitations').insert([{course_id:state.activeCourse.id, email, role, invited_by:state.user.id}]); ui.toast("Invited!"); }
-        courseManager.loadTeam();
-    },
-    delInvite: async (id) => { if(confirm("Cancel?")) { await sb.from('invitations').delete().eq('id', id); courseManager.loadTeam(); }},
-    delUser: async (uid) => { if(confirm("Remove?")) { await sb.from('enrollments').delete().eq('course_id', state.activeCourse.id).eq('user_id', uid); courseManager.loadTeam(); }},
-    
-    // Reports Logic (Full Gradebook)
+    // Reports Logic
     loadReports: async () => {
         const el = document.getElementById('tab-reports');
         el.innerHTML = '<div class="flex justify-center p-8"><i class="ph ph-spinner animate-spin text-3xl text-teal-600"></i></div>';
-
-        // 1. Fetch Structure
-        const { data: sections } = await sb.from('sections')
-            .select('id, title, modules(id, title, units(id, title, content(id, title, type)))')
-            .eq('course_id', state.activeCourse.id)
-            .order('position');
-
-        // 2. Identify Gradable Items
+        const { data: sections } = await sb.from('sections').select('id, title, modules(id, title, units(id, title, content(id, title, type)))').eq('course_id', state.activeCourse.id).order('position');
         let gradableItems = [];
-        sections?.forEach(s => s.modules?.forEach(m => m.units?.forEach(u => u.content?.forEach(c => {
-            if(['assignment', 'quiz', 'simulator'].includes(c.type)) {
-                gradableItems.push({ 
-                    id: c.id, 
-                    title: c.title, 
-                    type: c.type, 
-                    context: `${m.title} <br> <span class="text-gray-400 font-normal text-[10px] uppercase tracking-wide">${u.title}</span>` 
-                });
-            }
-        }))));
+        sections?.forEach(s => s.modules?.forEach(m => m.units?.forEach(u => u.content?.forEach(c => { if(['assignment', 'quiz', 'simulator'].includes(c.type)) gradableItems.push({ id: c.id, title: c.title, type: c.type, context: `${m.title} <br> <span class="text-gray-400 font-normal text-[10px] uppercase tracking-wide">${u.title}</span>` }); }))));
 
-        // 3. INSTRUCTOR VIEW: Full Gradebook Table
         if (isAdmin()) {
-            const { data: roster } = await sb.from('enrollments')
-                .select('user_id, profiles(email)')
-                .eq('course_id', state.activeCourse.id)
-                .eq('course_role', 'student');
-
-            if (!roster || roster.length === 0) {
-                el.innerHTML = '<p class="text-gray-500 p-6">No students enrolled yet.</p>';
-                return;
-            }
-
+            const { data: roster } = await sb.from('enrollments').select('user_id, profiles(email)').eq('course_id', state.activeCourse.id).eq('course_role', 'student');
+            if (!roster || roster.length === 0) { el.innerHTML = '<p class="text-gray-500 p-6">No students enrolled yet.</p>'; return; }
             const itemIds = gradableItems.map(i => i.id);
             const { data: allAssigns } = await sb.from('assignments').select('*').in('content_id', itemIds);
             const { data: allQuizzes } = await sb.from('quiz_results').select('*').in('content_id', itemIds).order('submitted_at', { ascending: true });
-
             const gradebook = {};
             roster.forEach(s => gradebook[s.user_id] = { email: s.profiles.email, data: {} });
+            allAssigns?.forEach(a => { if(gradebook[a.student_id]) gradebook[a.student_id].data[a.content_id] = { type: 'assignment', grade: a.grade || 'Submitted' }; });
+            allQuizzes?.forEach(q => { if(gradebook[q.user_id]) { if(!gradebook[q.user_id].data[q.content_id]) gradebook[q.user_id].data[q.content_id] = { type: 'quiz', history: [], best: null }; const info = getGradeInfo(q.score, q.total); gradebook[q.user_id].data[q.content_id].history.push(info.pct); if(!gradebook[q.user_id].data[q.content_id].best || info.pct > gradebook[q.user_id].data[q.content_id].best.pct) gradebook[q.user_id].data[q.content_id].best = info; } });
 
-            allAssigns?.forEach(a => {
-                if(gradebook[a.student_id]) {
-                    gradebook[a.student_id].data[a.content_id] = { type: 'assignment', grade: a.grade || 'Submitted' };
-                }
-            });
-
-            allQuizzes?.forEach(q => {
-                const sid = q.user_id;
-                const cid = q.content_id;
-                if(gradebook[sid]) {
-                    if(!gradebook[sid].data[cid]) gradebook[sid].data[cid] = { type: 'quiz', history: [], best: null };
-                    const info = getGradeInfo(q.score, q.total);
-                    gradebook[sid].data[cid].history.push(info.pct);
-                    const currentBest = gradebook[sid].data[cid].best;
-                    if(!currentBest || info.pct > currentBest.pct) {
-                        gradebook[sid].data[cid].best = info;
-                    }
-                }
-            });
-
-            let tableHtml = `
-                <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-xl font-bold text-gray-800">Class Gradebook</h2>
-                    <div class="flex items-center gap-2">
-                        <span class="text-xs px-2 py-1 bg-green-100 text-green-700 rounded">Pass (70-84%)</span>
-                        <span class="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded">Credit (85%+)</span>
-                        <button onclick="courseManager.loadReports()" class="text-sm text-teal-600 hover:underline ml-2"><i class="ph ph-arrow-clockwise"></i> Refresh</button>
-                    </div>
-                </div>
-                <div class="overflow-x-auto bg-white rounded-lg shadow border border-gray-200">
-                    <table class="w-full text-sm text-left whitespace-nowrap">
-                        <thead class="bg-gray-50 text-gray-600 font-bold border-b border-gray-200">
-                            <tr>
-                                <th class="p-4 sticky left-0 bg-gray-50 z-10 border-r">Student</th>
-                                ${gradableItems.map(i => `<th class="p-4 min-w-[180px] border-r border-gray-100">
-                                    <div class="text-xs font-bold text-teal-700 mb-1">${i.context}</div>
-                                    <div class="flex items-center gap-1 font-normal text-gray-500">${getContentEmoji(i.type)} ${i.title}</div>
-                                </th>`).join('')}
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100">
-            `;
-
+            let tableHtml = `<div class="flex justify-between items-center mb-4"><h2 class="text-xl font-bold text-gray-800">Class Gradebook</h2><button onclick="courseManager.loadReports()" class="text-sm text-teal-600 hover:underline"><i class="ph ph-arrow-clockwise"></i> Refresh</button></div><div class="overflow-x-auto bg-white rounded-lg shadow border border-gray-200"><table class="w-full text-sm text-left whitespace-nowrap"><thead class="bg-gray-50 text-gray-600 font-bold border-b border-gray-200"><tr><th class="p-4 sticky left-0 bg-gray-50 z-10 border-r">Student</th>${gradableItems.map(i => `<th class="p-4 min-w-[180px] border-r border-gray-100"><div class="text-xs font-bold text-teal-700 mb-1">${i.context}</div><div class="flex items-center gap-1 font-normal text-gray-500">${getContentEmoji(i.type)} ${i.title}</div></th>`).join('')}</tr></thead><tbody class="divide-y divide-gray-100">`;
             roster.forEach(student => {
                 const row = gradebook[student.user_id];
-                tableHtml += `<tr class="hover:bg-gray-50">
-                    <td class="p-4 font-medium text-gray-900 sticky left-0 bg-white border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">${row.email}</td>`;
-                
+                tableHtml += `<tr class="hover:bg-gray-50"><td class="p-4 font-medium text-gray-900 sticky left-0 bg-white border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">${row.email}</td>`;
                 gradableItems.forEach(item => {
                     const entry = row.data[item.id];
                     let cellHtml = '<span class="text-gray-300 text-xs italic">Not started</span>';
-                    
                     if (entry) {
-                        if (entry.type === 'quiz') {
-                            const { best, history } = entry;
-                            const attempts = history.length;
-                            const histStr = history.join('%, ') + '%';
-                            
-                            cellHtml = `
-                                <div class="flex flex-col gap-1">
-                                    <div class="flex justify-between items-center">
-                                        <span class="${best.color} px-2 py-0.5 rounded text-xs font-bold">${best.pct}% (${best.label})</span>
-                                        <span class="text-[10px] text-gray-500 font-semibold bg-gray-100 px-1.5 rounded-full" title="Attempts">${attempts}</span>
-                                    </div>
-                                    <div class="text-[10px] text-gray-400 truncate" title="History: ${histStr}">Hist: ${histStr}</div>
-                                </div>`;
-                        } else {
-                            let color = 'text-yellow-600 bg-yellow-50';
-                            if (entry.grade === 'Pass') color = 'text-green-600 bg-green-50';
-                            if (entry.grade === 'Fail') color = 'text-red-600 bg-red-50';
-                            cellHtml = `<span class="${color} px-2 py-1 rounded font-bold text-xs">${entry.grade}</span>`;
-                        }
+                        if (entry.type === 'quiz') { cellHtml = `<div class="flex flex-col gap-1"><span class="${entry.best.color} px-2 py-0.5 rounded text-xs font-bold">${entry.best.pct}% (${entry.best.label})</span><div class="text-[10px] text-gray-400">Attempts: ${entry.history.length}</div></div>`; } 
+                        else { cellHtml = `<span class="${entry.grade === 'Pass' ? 'text-green-600 bg-green-50' : (entry.grade==='Fail'?'text-red-600 bg-red-50':'text-yellow-600 bg-yellow-50')} px-2 py-1 rounded font-bold text-xs">${entry.grade}</span>`; }
                     }
                     tableHtml += `<td class="p-3 border-r border-gray-50 align-top">${cellHtml}</td>`;
                 });
                 tableHtml += `</tr>`;
             });
-
-            tableHtml += `</tbody></table></div>`;
-            el.innerHTML = tableHtml;
-            return;
+            tableHtml += `</tbody></table></div>`; el.innerHTML = tableHtml; return;
         }
 
-        // 4. STUDENT VIEW: Personal Progress Dashboard
         const { data: assigns } = await sb.from('assignments').select('*').eq('student_id', state.user.id);
         const { data: quizzes } = await sb.from('quiz_results').select('*').eq('user_id', state.user.id).order('submitted_at', { ascending: true });
+        const lookup = {}; assigns?.forEach(a => lookup[a.content_id] = { ...a, type: 'assignment' });
+        const quizLookup = {}; quizzes?.forEach(q => { if(!quizLookup[q.content_id]) quizLookup[q.content_id] = { history: [], best: null }; const info = getGradeInfo(q.score, q.total); quizLookup[q.content_id].history.push({ ...info, date: new Date(q.submitted_at).toLocaleDateString() }); if(!quizLookup[q.content_id].best || info.pct > quizLookup[q.content_id].best.pct) quizLookup[q.content_id].best = info; });
 
-        const lookup = {}; 
-        assigns?.forEach(a => lookup[a.content_id] = { ...a, type: 'assignment' });
-        
-        const quizLookup = {}; 
-        quizzes?.forEach(q => {
-            if(!quizLookup[q.content_id]) quizLookup[q.content_id] = { history: [], best: null };
-            const info = getGradeInfo(q.score, q.total);
-            const historyItem = { ...info, date: new Date(q.submitted_at).toLocaleDateString() };
-            quizLookup[q.content_id].history.push(historyItem);
-            if(!quizLookup[q.content_id].best || info.pct > quizLookup[q.content_id].best.pct) {
-                quizLookup[q.content_id].best = info;
-            }
-        });
+        let done = 0; gradableItems.forEach(i => { if (lookup[i.id] || (quizLookup[i.id] && quizLookup[i.id].history.length > 0)) done++; });
+        const progress = gradableItems.length === 0 ? 0 : Math.round((done/gradableItems.length)*100);
 
-        let total = gradableItems.length;
-        let done = 0;
-        gradableItems.forEach(i => {
-            if (lookup[i.id] || (quizLookup[i.id] && quizLookup[i.id].history.length > 0)) done++;
-        });
-        const progress = total === 0 ? 0 : Math.round((done/total)*100);
-
-        let html = `
-            <div class="bg-white p-6 rounded-lg shadow border border-gray-200 mb-6">
-                <div class="flex justify-between items-end mb-2">
-                    <h2 class="text-lg font-bold text-gray-700">Your Course Progress</h2>
-                    <span class="text-2xl font-bold text-teal-600">${progress}%</span>
-                </div>
-                <div class="w-full bg-gray-200 rounded-full h-3">
-                    <div class="bg-teal-500 h-3 rounded-full transition-all" style="width: ${progress}%"></div>
-                </div>
-            </div>
-            <div class="space-y-4">
-        `;
-
+        let html = `<div class="bg-white p-6 rounded-lg shadow border border-gray-200 mb-6"><div class="flex justify-between items-end mb-2"><h2 class="text-lg font-bold text-gray-700">Your Course Progress</h2><span class="text-2xl font-bold text-teal-600">${progress}%</span></div><div class="w-full bg-gray-200 rounded-full h-3"><div class="bg-teal-500 h-3 rounded-full transition-all" style="width: ${progress}%"></div></div></div><div class="space-y-4">`;
         sections?.forEach((sec, idx) => {
-            let hasGradable = false;
-            let sectionHtml = `<div class="p-4 border-t border-gray-100 space-y-4">`;
-
-            sec.modules?.forEach(mod => {
-                mod.units?.forEach(unit => {
-                    const graded = unit.content?.filter(c => ['assignment','quiz','simulator'].includes(c.type)) || [];
-                    if(graded.length > 0) {
-                        hasGradable = true;
-                        sectionHtml += `<div class="mb-2"><h5 class="text-xs font-bold text-gray-400 uppercase mb-2">${unit.title}</h5><div class="space-y-3">`;
-                        
-                        graded.forEach(item => {
-                            if(item.type === 'quiz') {
-                                const qData = quizLookup[item.id];
-                                if(qData) {
-                                    const { best, history } = qData;
-                                    let graph = `<div class="flex items-end gap-1 h-12 mt-3 border-b border-gray-200 pb-1">`;
-                                    history.slice(-10).forEach(h => {
-                                        let barColor = 'bg-red-400';
-                                        if (h.pct >= 85) barColor = 'bg-purple-400';
-                                        else if (h.pct >= 70) barColor = 'bg-green-400';
-                                        graph += `<div class="${barColor} w-3 rounded-t transition-all hover:opacity-80 relative group" style="height: ${Math.max(10, h.pct)}%">
-                                            <div class="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-black text-white text-[10px] px-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-10">${h.pct}%</div>
-                                        </div>`;
-                                    });
-                                    graph += `</div><div class="text-[10px] text-gray-400 mt-1">Attempts History (Recent)</div>`;
-
-                                    sectionHtml += `
-                                        <div class="bg-white border border-gray-200 p-4 rounded-lg shadow-sm">
-                                            <div class="flex justify-between items-start">
-                                                <div>
-                                                    <span class="font-bold text-gray-800">${item.title}</span>
-                                                    <div class="text-xs text-gray-500 mt-1">Attempts: ${history.length}</div>
-                                                </div>
-                                                <span class="${best.color} px-3 py-1 rounded font-bold text-sm">${best.pct}% (${best.label})</span>
-                                            </div>
-                                            ${graph}
-                                        </div>`;
-                                } else {
-                                    sectionHtml += `<div class="bg-white border border-gray-200 p-3 rounded flex justify-between items-center opacity-75">
-                                        <span class="text-sm text-gray-600">${item.title}</span>
-                                        <span class="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded">Not Taken</span>
-                                    </div>`;
-                                }
-                            } else {
-                                const data = lookup[item.id];
-                                const status = data ? (data.grade || 'Submitted') : 'Not Started';
-                                const style = data ? (data.grade === 'Pass' ? 'bg-green-100 text-green-800' : (data.grade==='Fail'?'bg-red-100 text-red-800':'bg-yellow-100 text-yellow-800')) : 'bg-gray-100 text-gray-500';
-                                sectionHtml += `<div class="bg-white border border-gray-200 p-3 rounded flex justify-between items-center">
-                                    <span class="text-sm font-medium text-gray-700">${item.title}</span>
-                                    <span class="${style} px-2 py-1 rounded text-xs font-bold">${status}</span>
-                                </div>`;
-                            }
-                        });
-                        sectionHtml += `</div></div>`;
-                    }
-                });
-            });
-            sectionHtml += `</div>`;
-
-            if(hasGradable) {
-                html += `
-                <details ${idx===0 ? 'open' : ''} class="group bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                    <summary class="flex justify-between items-center p-4 cursor-pointer bg-gray-50 hover:bg-gray-100 list-none">
-                        <h3 class="font-bold text-slate-800 flex items-center gap-2"><i class="ph ph-caret-right transition-transform group-open:rotate-90"></i> ${sec.title}</h3>
-                    </summary>
-                    ${sectionHtml}
-                </details>`;
-            }
+            let hasGradable = false; let sectionHtml = `<div class="p-4 border-t border-gray-100 space-y-4">`;
+            sec.modules?.forEach(mod => { mod.units?.forEach(unit => { const graded = unit.content?.filter(c => ['assignment','quiz','simulator'].includes(c.type)) || []; if(graded.length > 0) { hasGradable = true; sectionHtml += `<div class="mb-2"><h5 class="text-xs font-bold text-gray-400 uppercase mb-2">${unit.title}</h5><div class="space-y-3">`; graded.forEach(item => { if(item.type === 'quiz') { const qData = quizLookup[item.id]; if(qData) { sectionHtml += `<div class="bg-white border border-gray-200 p-4 rounded-lg shadow-sm"><div class="flex justify-between items-start"><div><span class="font-bold text-gray-800">${item.title}</span><div class="text-xs text-gray-500 mt-1">Attempts: ${qData.history.length}</div></div><span class="${qData.best.color} px-3 py-1 rounded font-bold text-sm">${qData.best.pct}% (${qData.best.label})</span></div></div>`; } else { sectionHtml += `<div class="bg-white border border-gray-200 p-3 rounded flex justify-between items-center opacity-75"><span class="text-sm text-gray-600">${item.title}</span><span class="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded">Not Taken</span></div>`; } } else { const data = lookup[item.id]; const status = data ? (data.grade || 'Submitted') : 'Not Started'; const style = data ? (data.grade === 'Pass' ? 'bg-green-100 text-green-800' : (data.grade==='Fail'?'bg-red-100 text-red-800':'bg-yellow-100 text-yellow-800')) : 'bg-gray-100 text-gray-500'; sectionHtml += `<div class="bg-white border border-gray-200 p-3 rounded flex justify-between items-center"><span class="text-sm font-medium text-gray-700">${item.title}</span><span class="${style} px-2 py-1 rounded text-xs font-bold">${status}</span></div>`; } }); sectionHtml += `</div></div>`; } }); }); sectionHtml += `</div>`;
+            if(hasGradable) html += `<details ${idx===0 ? 'open' : ''} class="group bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden"><summary class="flex justify-between items-center p-4 cursor-pointer bg-gray-50 hover:bg-gray-100 list-none"><h3 class="font-bold text-slate-800 flex items-center gap-2"><i class="ph ph-caret-right transition-transform group-open:rotate-90"></i> ${sec.title}</h3></summary>${sectionHtml}</details>`;
         });
-        
-        html += `</div>`;
-        el.innerHTML = html;
+        html += `</div>`; el.innerHTML = html;
     }
 };
-// Add this to courseManager object
-    openBulkEdit: async () => {
-        // Fetch all units
-        const { data: units } = await sb.from('units')
-            .select('id, title, total_hours_required, modules(title, sections(title))')
-            .eq('is_visible', true) // Optional: remove if you want to edit hidden ones too
-            .order('id', { ascending: true }); // Improved ordering logic needed in real app
-
-        // Create Modal HTML
-        const modal = document.createElement('div');
-        modal.className = "fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-8 fade-in";
-        modal.innerHTML = `
-            <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col">
-                <div class="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-xl">
-                    <h3 class="font-bold text-lg">Bulk Edit Unit Hours</h3>
-                    <button onclick="this.closest('.fixed').remove()" class="text-gray-500 hover:text-red-500"><i class="ph ph-x text-xl"></i></button>
-                </div>
-                <div class="flex-1 overflow-y-auto p-6">
-                    <table class="w-full text-sm text-left">
-                        <thead class="bg-gray-100 text-gray-600 sticky top-0">
-                            <tr>
-                                <th class="p-3">Module / Section</th>
-                                <th class="p-3">Unit Title</th>
-                                <th class="p-3 w-32">Hours</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100">
-                            ${units.map(u => `
-                                <tr>
-                                    <td class="p-3 text-gray-500 text-xs">
-                                        ${u.modules?.sections?.title || ''} > ${u.modules?.title || ''}
-                                    </td>
-                                    <td class="p-3 font-medium">${u.title}</td>
-                                    <td class="p-3">
-                                        <input type="number" step="0.5" 
-                                            class="border p-1 rounded w-full bg-gray-50 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none transition"
-                                            value="${u.total_hours_required || 0}"
-                                            onchange="courseManager.updateHours(${u.id}, this.value)">
-                                    </td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                </div>
-                <div class="p-4 border-t bg-gray-50 text-right">
-                    <button onclick="this.closest('.fixed').remove()" class="bg-teal-600 text-white px-6 py-2 rounded shadow hover:bg-teal-700">Done</button>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(modal);
-    }
-// Helper for Rendering Content Items
-function renderContentItem(file, unitId, myWork) {
-    let emoji = getContentEmoji(file.type);
-    let actionHtml = '';
-    let descHtml = '';
-
-    if (file.data) {
-        if (file.data.description) descHtml = `<div class="text-sm text-gray-600 mt-2 ml-12 bg-white p-3 rounded border border-gray-200 shadow-sm">${file.data.description}</div>`;
-        if (file.data.dueDate) descHtml += `<div class="ml-12 mt-1 text-xs font-bold text-red-600 flex items-center gap-1"><i class="ph ph-calendar-warning"></i> Due: ${new Date(file.data.dueDate).toLocaleDateString()}</div>`;
-    }
-
-    if(file.type === 'assignment') {
-        if(file.file_url) descHtml += `<div class="ml-12 mt-2"><a href="${file.file_url}" target="_blank" class="text-xs text-blue-600 hover:underline flex items-center gap-1 font-medium"><i class="ph ph-file-arrow-down"></i> Download Brief</a></div>`;
-        if (isAdmin()) actionHtml = `<button onclick="event.stopPropagation(); assignmentManager.openGrading(${file.id})" class="text-xs bg-indigo-100 text-indigo-700 px-3 py-1 rounded border border-indigo-200 hover:bg-indigo-200 font-bold">Grade</button>`;
-        else {
-            const status = myWork[file.id] || 'Upload Work';
-            const btnColor = status === 'Submitted' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700 shadow-sm';
-            actionHtml = `<button onclick="event.stopPropagation(); assignmentManager.openSubmit(${file.id})" class="text-xs px-3 py-1 rounded border ${btnColor} font-medium">${status}</button>`;
-        }
-    } else if (file.type === 'quiz') {
-        if (isAdmin()) actionHtml = `<span class="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded">Quiz</span>`;
-        else {
-            const status = myWork[file.id] ? 'Retake Quiz' : 'Take Quiz';
-            actionHtml = `<button onclick="event.stopPropagation(); quizManager.takeQuiz(${file.id})" class="text-xs px-3 py-1 rounded bg-purple-600 text-white hover:bg-purple-700 shadow-sm font-medium">${status}</button>`;
-        }
-    }
-
-    return `
-    <div class="bg-white p-2 rounded-lg border border-gray-200 hover:shadow-md transition group">
-        <div class="flex items-center justify-between">
-            <div class="flex items-center gap-3 cursor-pointer flex-1" onclick="courseManager.launchContent(${file.id}, '${file.type}', '${file.file_url}')">
-                <div class="h-8 w-8 flex items-center justify-center text-2xl grayscale group-hover:grayscale-0 transition-all">
-                    ${emoji}
-                </div>
-                <span class="font-medium text-sm text-gray-800 group-hover:text-teal-700 transition">
-                    ${file.title}
-                    ${!file.is_visible ? '<i class="ph ph-eye-slash text-red-400 text-xs ml-1"></i>' : ''}
-                </span>
-            </div>
-            <div class="flex items-center gap-3">
-                ${actionHtml}
-                ${isAdmin() ? `
-                    <div class="hidden group-hover:flex gap-1">
-                        <button onclick="contentModal.open(${unitId}, ${JSON.stringify(file).replace(/'/g, "&#39;")})" class="text-gray-400 hover:text-blue-500"><i class="ph ph-pencil-simple"></i></button>
-                        <button onclick="courseManager.deleteItem('content', ${file.id})" class="text-gray-400 hover:text-red-500"><i class="ph ph-trash"></i></button>
-                    </div>
-                ` : ''}
-            </div>
-        </div>
-        ${descHtml}
-    </div>`;
-}
 
 // ==========================================
-// 6. ENTITY MODAL (Updated)
+// 6. ENTITY MODAL (Sections/Modules/Units)
 // ==========================================
 const entityModal = {
     type: null, id: null, parentId: null,
@@ -1027,9 +878,6 @@ const entityModal = {
         const title = el.dataset.title;
         const desc = el.dataset.desc;
         const image = el.dataset.image;
-        // Fetch full object if possible for edits, or just pass basics
-        // For simplicity, we assume basics are enough or reload
-        // A better way is to pass the full object in dataset as JSON
         entityModal.open(type, id, title, desc, image);
     },
 
@@ -1039,21 +887,17 @@ const entityModal = {
         document.getElementById('entity-modal-title').innerText = (id ? 'Edit ' : 'New ') + type.charAt(0).toUpperCase() + type.slice(1);
         document.getElementById('entity-title').value = title;
         document.getElementById('entity-desc').value = desc;
-        
         document.getElementById('entity-image-file').value = ''; 
         document.getElementById('entity-image-url').value = image.startsWith('http') ? image : '';
         document.getElementById('entity-desc-wrapper').classList.toggle('hidden', type !== 'course');
         
-        // Fetch current values if editing (for visibility/hours)
         let item = null;
         if(id) {
             const { data } = await sb.from(type + 's').select('*').eq('id', id).single();
             item = data;
         }
 
-        // Visibility & Hours Logic
         document.getElementById('entity-visible').checked = item ? (item.is_visible !== false) : true;
-        
         const hrsWrapper = document.getElementById('entity-hours-wrapper');
         if(type === 'unit') {
             hrsWrapper.classList.remove('hidden');
@@ -1061,7 +905,6 @@ const entityModal = {
         } else {
             hrsWrapper.classList.add('hidden');
         }
-        
         entityModal.toggleImageSource();
     },
     
@@ -1071,19 +914,12 @@ const entityModal = {
         const source = document.querySelector('input[name="entity-img-source"]:checked').value;
         const fileInput = document.getElementById('entity-image-file');
         const urlInput = document.getElementById('entity-image-url');
-        
-        if (source === 'url') {
-            fileInput.classList.add('hidden');
-            urlInput.classList.remove('hidden');
-        } else {
-            fileInput.classList.remove('hidden');
-            urlInput.classList.add('hidden');
-        }
+        if (source === 'url') { fileInput.classList.add('hidden'); urlInput.classList.remove('hidden'); } 
+        else { fileInput.classList.remove('hidden'); urlInput.classList.add('hidden'); }
     },
 
     save: async () => {
-        const btn = document.getElementById('btn-save-entity'); 
-        const originalText = btn.innerText;
+        const btn = document.getElementById('btn-save-entity'); const originalText = btn.innerText;
         btn.innerText = '⏳ Saving...'; btn.disabled = true;
 
         try {
@@ -1107,24 +943,18 @@ const entityModal = {
             }
             
             if(!title) throw new Error("Title required");
-
             const data = { title, is_visible: isVisible };
             if(entityModal.type === 'course') { data.description = desc; if(imageUrl) data.image_url = imageUrl; }
             if(entityModal.type === 'unit') data.total_hours_required = totalHours;
 
-            if (entityModal.id) {
-                await sb.from(entityModal.type + 's').update(data).eq('id', entityModal.id);
-            } else {
+            if (entityModal.id) await sb.from(entityModal.type + 's').update(data).eq('id', entityModal.id);
+            else {
                 if (entityModal.type === 'section') data.course_id = state.activeCourse.id;
                 else if (entityModal.type === 'module') data.section_id = entityModal.parentId;
                 await sb.from(entityModal.type + 's').insert([data]);
             }
-
-            ui.toast("Saved!", "success");
-            entityModal.close();
-            
-            if (entityModal.type === 'course') dashboard.loadCourses();
-            else courseManager.loadSyllabus();
+            ui.toast("Saved!", "success"); entityModal.close();
+            if (entityModal.type === 'course') dashboard.loadCourses(); else courseManager.loadSyllabus();
 
         } catch(e) { console.error(e); ui.toast(e.message, 'error'); } 
         finally { btn.innerText = originalText; btn.disabled = false; }
@@ -1132,7 +962,83 @@ const entityModal = {
 };
 
 // ==========================================
-// 8. ASSIGNMENT & QUIZ MANAGERS
+// 8. CONTENT MODAL (Updated to handle Edit)
+// ==========================================
+const contentModal = {
+    // UPDATED: Now accepts an 'item' to populate for editing
+    open: (unitId, item = null) => {
+        document.getElementById('modal-add-content').classList.remove('hidden');
+        document.getElementById('btn-save-content').onclick = () => contentModal.save(unitId, item?.id);
+        
+        // Reset or Populate
+        if(item) {
+            document.getElementById('input-content-type').value = item.type;
+            document.getElementById('input-content-title').value = item.title;
+            document.getElementById('input-content-url').value = item.file_url || '';
+            if(item.type === 'quiz' && item.data?.questions) {
+                quizManager.questions = item.data.questions;
+                document.getElementById('quiz-questions-list').innerHTML = item.data.questions.map(q=>`<div>${q.q}</div>`).join('');
+            }
+            // Trigger UI update for type
+            contentModal.toggleFields();
+        } else {
+            document.getElementById('input-content-title').value = '';
+            document.getElementById('input-content-url').value = '';
+            quizManager.questions = [];
+            document.getElementById('quiz-questions-list').innerHTML = '';
+            contentModal.toggleFields();
+        }
+    },
+    close: () => document.getElementById('modal-add-content').classList.add('hidden'),
+    toggleFields: () => {
+        const type = document.getElementById('input-content-type').value;
+        const isQuiz = type === 'quiz';
+        document.getElementById('quiz-wrapper').classList.toggle('hidden', !isQuiz);
+        document.getElementById('source-wrapper').classList.toggle('hidden', isQuiz);
+    },
+    save: async (unitId, itemId = null) => {
+        const title = document.getElementById('input-content-title').value;
+        const type = document.getElementById('input-content-type').value;
+        let fileUrl = document.getElementById('input-content-url').value; 
+        let jsonData = {};
+
+        if(type === 'quiz') {
+            jsonData = { questions: quizManager.questions };
+        } else {
+            // Simplified file handling: real app would upload here if file input is used
+            const fileInput = document.getElementById('input-content-file');
+            if(fileInput.files.length > 0) {
+                 const file = fileInput.files[0];
+                 const path = `files/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9]/g,'_')}`;
+                 await sb.storage.from('course_content').upload(path, file);
+                 const { data } = sb.storage.from('course_content').getPublicUrl(path);
+                 fileUrl = data.publicUrl;
+            }
+        }
+
+        const payload = {
+            unit_id: unitId,
+            title,
+            type,
+            file_url: fileUrl,
+            data: jsonData
+        };
+
+        if(itemId) {
+            await sb.from('content').update(payload).eq('id', itemId);
+            ui.toast("Content Updated!");
+        } else {
+            await sb.from('content').insert([payload]);
+            ui.toast("Content Added!");
+        }
+        
+        contentModal.close();
+        courseManager.openModule(state.activeModule.id);
+    }
+};
+
+// ==========================================
+// 9. ASSIGNMENT & QUIZ MANAGERS
 // ==========================================
 const assignmentManager = {
     openSubmit: (contentId) => {
@@ -1145,133 +1051,50 @@ const assignmentManager = {
         const file = fileIn.files[0];
         const cid = fileIn.dataset.cid;
         if(!file) return alert("Please select a file.");
-        
         const path = `assignments/${state.user.id}_${Date.now()}_${file.name}`;
         await sb.storage.from('course_content').upload(path, file);
         const { data } = sb.storage.from('course_content').getPublicUrl(path);
-        
-        await sb.from('assignments').insert([{
-            course_id: state.activeCourse.id,
-            content_id: cid,
-            student_id: state.user.id,
-            file_url: data.publicUrl
-        }]);
-        ui.toast("Submitted!", "success");
-        assignmentManager.closeSubmit();
+        await sb.from('assignments').insert([{ course_id: state.activeCourse.id, content_id: cid, student_id: state.user.id, file_url: data.publicUrl }]);
+        ui.toast("Submitted!", "success"); assignmentManager.closeSubmit();
     },
     openGrading: async (contentId) => {
-        const m = document.getElementById('modal-grade-assignment');
-        m.classList.remove('hidden');
-        const list = document.getElementById('grading-list');
-        list.innerHTML = 'Loading...';
+        const m = document.getElementById('modal-grade-assignment'); m.classList.remove('hidden');
+        const list = document.getElementById('grading-list'); list.innerHTML = 'Loading...';
         const { data } = await sb.from('assignments').select('*, profiles(email)').eq('content_id', contentId);
-        list.innerHTML = data.map(sub => `
-            <div class="border-b p-3 flex justify-between">
-                <div>
-                    <div class="font-bold">${sub.profiles.email}</div>
-                    <a href="${sub.file_url}" target="_blank" class="text-blue-600 text-sm underline">View Work</a>
-                </div>
-                <div>
-                    <select onchange="assignmentManager.grade(${sub.id}, this.value)" class="border p-1">
-                        <option value="">Grade...</option>
-                        <option value="Pass">Pass</option>
-                        <option value="Fail">Fail</option>
-                        <option value="Credit">Credit</option>
-                    </select>
-                </div>
-            </div>`).join('');
+        list.innerHTML = data.map(sub => `<div class="border-b p-3 flex justify-between"><div><div class="font-bold">${sub.profiles.email}</div><a href="${sub.file_url}" target="_blank" class="text-blue-600 text-sm underline">View Work</a></div><div><select onchange="assignmentManager.grade(${sub.id}, this.value)" class="border p-1"><option value="">Grade...</option><option value="Pass">Pass</option><option value="Fail">Fail</option><option value="Credit">Credit</option></select></div></div>`).join('');
     },
     closeGrading: () => document.getElementById('modal-grade-assignment').classList.add('hidden'),
-    grade: async (id, val) => {
-        await sb.from('assignments').update({ grade: val }).eq('id', id);
-        ui.toast("Graded!");
-    }
+    grade: async (id, val) => { await sb.from('assignments').update({ grade: val }).eq('id', id); ui.toast("Graded!"); }
 };
 
 const quizManager = {
     questions: [],
     addQuestionUI: () => {
-        const q = prompt("Question:");
-        if(!q) return;
-        const a = prompt("Option 1 (Correct):");
-        const b = prompt("Option 2:");
-        const c = prompt("Option 3:");
+        const q = prompt("Question:"); if(!q) return;
+        const a = prompt("Option 1 (Correct):"); const b = prompt("Option 2:"); const c = prompt("Option 3:");
         quizManager.questions.push({ q, options: [a,b,c], correct: 0 });
         document.getElementById('quiz-questions-list').innerHTML += `<div>${q}</div>`;
     },
     takeQuiz: async (id) => {
         const { data } = await sb.from('content').select('data').eq('id', id).single();
         if(!data || !data.data.questions) return alert("Error loading quiz");
-        
         document.getElementById('modal-take-quiz').classList.remove('hidden');
-        const body = document.getElementById('quiz-body');
-        body.innerHTML = '';
-        body.dataset.cid = id;
-        
+        const body = document.getElementById('quiz-body'); body.innerHTML = ''; body.dataset.cid = id;
         data.data.questions.forEach((q, idx) => {
-            let opts = '';
-            q.options.forEach((opt, oIdx) => {
-                opts += `<label class="block p-2 border rounded mb-1 cursor-pointer hover:bg-gray-50"><input type="radio" name="q${idx}" value="${oIdx}"> ${opt}</label>`;
-            });
+            let opts = ''; q.options.forEach((opt, oIdx) => { opts += `<label class="block p-2 border rounded mb-1 cursor-pointer hover:bg-gray-50"><input type="radio" name="q${idx}" value="${oIdx}"> ${opt}</label>`; });
             body.innerHTML += `<div class="mb-4"><p class="font-bold mb-2">${idx+1}. ${q.q}</p>${opts}</div>`;
         });
     },
     closeTakeQuiz: () => document.getElementById('modal-take-quiz').classList.add('hidden'),
     submitQuiz: async () => {
-        const body = document.getElementById('quiz-body');
-        const cid = body.dataset.cid;
-        // Simplified scoring logic
-        await sb.from('quiz_results').insert([{
-            user_id: state.user.id,
-            content_id: cid,
-            score: 100, 
-            total: 100
-        }]);
-        ui.toast("Quiz Submitted!");
-        quizManager.closeTakeQuiz();
-    }
-};
-
-const contentModal = {
-    open: (unitId) => {
-        document.getElementById('modal-add-content').classList.remove('hidden');
-        document.getElementById('btn-save-content').onclick = () => contentModal.save(unitId);
-    },
-    close: () => document.getElementById('modal-add-content').classList.add('hidden'),
-    toggleFields: () => {
-        const type = document.getElementById('input-content-type').value;
-        const isQuiz = type === 'quiz';
-        document.getElementById('quiz-wrapper').classList.toggle('hidden', !isQuiz);
-        document.getElementById('source-wrapper').classList.toggle('hidden', isQuiz);
-    },
-    save: async (unitId) => {
-        const title = document.getElementById('input-content-title').value;
-        const type = document.getElementById('input-content-type').value;
-        let fileUrl = null;
-        let jsonData = {};
-
-        if(type === 'quiz') {
-            jsonData = { questions: quizManager.questions };
-        } else {
-            // simplified file upload logic
-            fileUrl = document.getElementById('input-content-url').value; 
-        }
-
-        await sb.from('content').insert([{
-            unit_id: unitId,
-            title,
-            type,
-            file_url: fileUrl,
-            data: jsonData
-        }]);
-        ui.toast("Content Added!");
-        contentModal.close();
-        courseManager.openModule(state.activeModule.id);
+        const body = document.getElementById('quiz-body'); const cid = body.dataset.cid;
+        await sb.from('quiz_results').insert([{ user_id: state.user.id, content_id: cid, score: 100, total: 100 }]);
+        ui.toast("Quiz Submitted!"); quizManager.closeTakeQuiz();
     }
 };
 
 // ==========================================
-// 10. SCHEDULER MANAGER (Updated with Modal Delete)
+// 10. SCHEDULER MANAGER (Updated)
 // ==========================================
 const schedulerManager = {
     currentDate: new Date(),
@@ -1289,21 +1112,8 @@ const schedulerManager = {
     },
 
     fetchData: async () => {
-        console.log("Fetching schedule data...");
-        // FIX: We use 'units:unit_id(...)' to explicitly tell Supabase 
-        // to use the 'unit_id' column to find the Unit data.
-        const { data, error } = await sb.from('schedules')
-            .select('*, units:unit_id(title, total_hours_required)')
-            .eq('course_id', state.activeCourse.id);
-            
-        if (error) {
-            console.error("Scheduler Fetch Error:", error);
-            ui.toast("Error loading schedule. See console.", "error");
-            schedulerManager.schedules = [];
-        } else {
-            schedulerManager.schedules = data || [];
-            console.log("Loaded schedules:", data.length);
-        }
+        const { data } = await sb.from('schedules').select('*, units:unit_id(title, total_hours_required)').eq('course_id', state.activeCourse.id);
+        schedulerManager.schedules = data || [];
     },
 
     changeMonth: (delta) => {
@@ -1312,368 +1122,176 @@ const schedulerManager = {
     },
 
     renderCalendar: () => {
-        const container = document.getElementById('calCont');
-        if(!container) return;
-        container.innerHTML = '';
-        
+        const container = document.getElementById('calCont'); if(!container) return; container.innerHTML = '';
         const year = schedulerManager.currentDate.getFullYear();
         const month = schedulerManager.currentDate.getMonth();
-        
-        const titleEl = document.getElementById('cal-month-title');
-        if(titleEl) {
-            titleEl.innerText = schedulerManager.currentDate.toLocaleDateString('default', { month: 'long', year: 'numeric' });
-        }
+        document.getElementById('cal-month-title').innerHTML = `${schedulerManager.currentDate.toLocaleDateString('default', { month: 'long', year: 'numeric' })} ${isAdmin() ? `<button onclick="schedulerManager.shiftSchedule()" class="text-xs bg-orange-100 text-orange-700 px-3 py-1 rounded border border-orange-200 ml-4 hover:bg-orange-200 font-normal"><i class="fa-solid fa-clock-rotate-left"></i> Shift Dates</button>` : ''}`;
 
-        const grid = document.createElement('div');
-        grid.className = 'bg-white rounded-lg overflow-hidden border border-gray-200';
+        const grid = document.createElement('div'); grid.className = 'bg-white rounded-lg overflow-hidden border border-gray-200';
         grid.innerHTML = `<div class="cal-header"><div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div></div>`;
-
-        const body = document.createElement('div');
-        body.className = 'cal-grid-7';
+        const body = document.createElement('div'); body.className = 'cal-grid-7';
 
         const firstDay = new Date(year, month, 1).getDay();
         const daysInMonth = new Date(year, month + 1, 0).getDate();
         const irishHolidays = getIrishHolidays(year);
 
-        // Blank days before start of month
         for(let i=0; i<firstDay; i++) body.innerHTML += `<div class="cal-cell bg-gray-50"></div>`;
 
-        // Render Days
         for(let d=1; d<=daysInMonth; d++) {
             const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
             const isBlocked = irishHolidays.includes(dateStr) || new Date(dateStr).getDay() % 6 === 0; 
-            
             const slots = schedulerManager.schedules.filter(s => s.date === dateStr);
             const hoursUsed = slots.reduce((acc, s) => acc + s.hours_assigned, 0);
-            const isOver = hoursUsed > 6.5;
-
-            let html = `<div class="cal-cell ${isBlocked ? 'cal-blocked' : ''}" 
-                ondrop="schedulerManager.handleDrop(event, '${dateStr}')" 
-                ondragover="event.preventDefault()"
-                onclick="schedulerManager.editDay('${dateStr}')">
-                <div class="cal-date-badge">${d}</div>`;
-
-            if(isBlocked) {
-                html += `<div class="text-[10px] text-red-300 mt-4 text-center font-bold">HOLIDAY / W.E</div>`;
-            } else {
+            
+            let html = `<div class="cal-cell ${isBlocked ? 'cal-blocked' : ''}" ondrop="schedulerManager.handleDrop(event, '${dateStr}')" ondragover="event.preventDefault()" onclick="schedulerManager.editDay('${dateStr}')"><div class="cal-date-badge">${d}</div>`;
+            if(isBlocked) html += `<div class="text-[10px] text-red-300 mt-4 text-center font-bold">HOLIDAY / W.E</div>`;
+            else {
                 html += `<div class="mt-4 space-y-1">`;
                 slots.forEach(s => {
-                    // Safe check for unit title
-                    const unitTitle = s.units ? s.units.title : 'Unknown Unit';
-                    const label = s.type === 'unit' ? unitTitle : s.label;
+                    const label = s.type === 'unit' ? (s.units ? s.units.title : 'Unknown') : s.label;
                     const style = s.type === 'exam' ? 'exam' : (s.type === 'unit' ? '' : 'holiday');
-                    
-                    html += `<div class="sched-item ${style}" title="${label}">
-                        ${s.hours_assigned}h: ${label}
-                    </div>`;
+                    // IMPORTANT: Draggable attributes added here
+                    html += `<div class="sched-item ${style}" title="${label}" draggable="true" ondragstart="schedulerManager.dragStartExisting(event, '${s.id}', '${label}', ${s.hours_assigned})">${s.hours_assigned}h: ${label}</div>`;
                 });
                 html += `</div>`;
-                
-                if(hoursUsed > 0) {
-                    const color = isOver ? 'text-red-600' : 'text-gray-400';
-                    html += `<div class="absolute bottom-1 right-2 text-[9px] font-bold ${color}">${hoursUsed}/6.5h</div>`;
-                }
+                if(hoursUsed > 0) html += `<div class="absolute bottom-1 right-2 text-[9px] font-bold ${hoursUsed > 6.5 ? 'text-red-600' : 'text-gray-400'}">${hoursUsed}/6.5h</div>`;
             }
-            html += `</div>`;
-            body.innerHTML += html;
+            html += `</div>`; body.innerHTML += html;
         }
-        grid.appendChild(body);
-        container.appendChild(grid);
+        grid.appendChild(body); container.appendChild(grid);
     },
-// Add this to schedulerManager object
-    shiftSchedule: async () => {
-        if (schedulerManager.schedules.length === 0) return alert("No schedule to shift.");
 
-        // 1. Find the current start date of the schedule
-        const dates = schedulerManager.schedules.map(s => new Date(s.date));
-        const currentStart = new Date(Math.min.apply(null, dates));
-        
-        // 2. Ask user for new start date
-        const newStartStr = prompt("Enter new start date (YYYY-MM-DD):", currentStart.toISOString().split('T')[0]);
-        if (!newStartStr) return;
-        
-        const newStart = new Date(newStartStr);
-        if (isNaN(newStart.getTime())) return alert("Invalid date.");
-
-        // 3. Calculate difference in milliseconds
-        const diffTime = newStart - currentStart;
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-
-        if (diffDays === 0) return alert("Date is the same.");
-        if (!confirm(`This will move ALL ${schedulerManager.schedules.length} items by ${diffDays} days. Proceed?`)) return;
-
-        // 4. Update every item in the database
-        // Note: For large schedules, doing this in a loop is slow. 
-        // A SQL function (RPC) would be better, but this works for client-side JS.
-        let updatedCount = 0;
-        
-        for (const slot of schedulerManager.schedules) {
-            const oldDate = new Date(slot.date);
-            const newDate = new Date(oldDate);
-            newDate.setDate(oldDate.getDate() + diffDays);
-            
-            const dateStr = newDate.toISOString().split('T')[0];
-            
-            await sb.from('schedules').update({ date: dateStr }).eq('id', slot.id);
-            updatedCount++;
-        }
-
-        ui.toast(`Shifted ${updatedCount} items!`);
-        await schedulerManager.init(); // Refresh calendar
-    },
-    renderSidebar: async () => {
-        const list = document.getElementById('scheduler-sidebar');
-        if(!list) return;
-        list.innerHTML = '';
-
+    renderSidebar: async () => { 
+        const list = document.getElementById('scheduler-sidebar'); if(!list) return; list.innerHTML = '';
         let hasUnits = false;
-
         state.structure.forEach(section => {
             section.modules?.forEach(module => {
                 if(!module.units || module.units.length === 0) return;
-                
                 hasUnits = true;
-
-                // Create Details/Summary for Module
-                const group = document.createElement('details');
-                group.className = "group/sidebar mb-2 bg-white border border-gray-200 rounded-lg overflow-hidden";
-                group.open = true; 
-
-                group.innerHTML = `
-                    <summary class="flex justify-between items-center p-2 bg-gray-50 cursor-pointer hover:bg-gray-100 text-xs font-bold text-gray-700 select-none list-none">
-                        <span class="truncate pr-2">${module.title}</span>
-                        <i class="ph ph-caret-down transition-transform group-open/sidebar:rotate-180 text-gray-400"></i>
-                    </summary>
-                    <div class="p-2 space-y-2 bg-slate-50 border-t border-gray-100"></div>
-                `;
-
+                const group = document.createElement('details'); group.className = "group/sidebar mb-2 bg-white border border-gray-200 rounded-lg overflow-hidden"; group.open = true; 
+                group.innerHTML = `<summary class="flex justify-between items-center p-2 bg-gray-50 cursor-pointer hover:bg-gray-100 text-xs font-bold text-gray-700 select-none list-none"><span class="truncate pr-2">${module.title}</span><i class="ph ph-caret-down transition-transform group-open/sidebar:rotate-180 text-gray-400"></i></summary><div class="p-2 space-y-2 bg-slate-50 border-t border-gray-100"></div>`;
                 const container = group.querySelector('div');
-
                 module.units.forEach(u => {
-                    // Logic to calc hours
-                    const scheduled = schedulerManager.schedules
-                        .filter(s => s.unit_id === u.id)
-                        .reduce((acc, s) => acc + s.hours_assigned, 0);
-                    
+                    const scheduled = schedulerManager.schedules.filter(s => s.unit_id === u.id).reduce((acc, s) => acc + s.hours_assigned, 0);
                     const total = u.total_hours_required || 0;
                     const remaining = Math.max(0, total - scheduled);
                     const pct = total > 0 ? Math.round((scheduled / total) * 100) : 0;
-
                     const div = document.createElement('div');
                     div.className = "p-2 bg-white border border-gray-200 rounded shadow-sm cursor-grab active:cursor-grabbing hover:border-teal-400 transition group/item";
                     div.draggable = true;
-                    
-                    div.ondragstart = (e) => {
-                        e.dataTransfer.setData('type', 'unit');
-                        e.dataTransfer.setData('id', u.id);
-                        e.dataTransfer.setData('title', u.title);
-                    };
-                    
-                    div.innerHTML = `
-                        <div class="flex justify-between items-start mb-1">
-                            <div class="text-xs font-bold text-gray-700 truncate w-3/4" title="${u.title}">${u.title}</div>
-                            <span class="text-[9px] font-bold ${pct >= 100 ? 'text-green-600' : 'text-blue-600'}">${pct}%</span>
-                        </div>
-                        <div class="flex justify-between items-center text-[10px] text-gray-500 mb-1">
-                            <span>${scheduled} / ${total} hrs</span>
-                            <span class="${remaining === 0 ? 'text-green-600 font-bold' : 'text-orange-500'}">${remaining}h left</span>
-                        </div>
-                        <div class="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                            <div class="h-full ${pct >= 100 ? 'bg-green-500' : 'bg-blue-500'} transition-all" style="width: ${Math.min(100, pct)}%"></div>
-                        </div>
-                    `;
+                    div.ondragstart = (e) => { e.dataTransfer.setData('type', 'unit'); e.dataTransfer.setData('id', u.id); e.dataTransfer.setData('title', u.title); };
+                    div.innerHTML = `<div class="flex justify-between items-start mb-1"><div class="text-xs font-bold text-gray-700 truncate w-3/4" title="${u.title}">${u.title}</div><span class="text-[9px] font-bold ${pct >= 100 ? 'text-green-600' : 'text-blue-600'}">${pct}%</span></div><div class="flex justify-between items-center text-[10px] text-gray-500 mb-1"><span>${scheduled} / ${total} hrs</span><span class="${remaining === 0 ? 'text-green-600 font-bold' : 'text-orange-500'}">${remaining}h left</span></div><div class="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden"><div class="h-full ${pct >= 100 ? 'bg-green-500' : 'bg-blue-500'} transition-all" style="width: ${Math.min(100, pct)}%"></div></div>`;
                     container.appendChild(div);
                 });
-
                 list.appendChild(group);
             });
         });
-
-        if(!hasUnits) {
-            list.innerHTML = '<div class="text-xs text-gray-400 text-center p-4">No units found. Add content first.</div>';
-        }
-
-        // Add Misc Items (Exam, etc)
-        const miscGroup = document.createElement('div');
-        miscGroup.className = "mt-4 pt-4 border-t border-gray-200";
-        miscGroup.innerHTML = '<div class="text-xs font-bold text-gray-400 uppercase mb-2 px-1">Quick Add</div><div class="grid grid-cols-2 gap-2" id="misc-grid"></div>';
+        if(!hasUnits) list.innerHTML = '<div class="text-xs text-gray-400 text-center p-4">No units found.</div>';
+        const miscGroup = document.createElement('div'); miscGroup.className = "mt-4 pt-4 border-t border-gray-200"; miscGroup.innerHTML = '<div class="text-xs font-bold text-gray-400 uppercase mb-2 px-1">Quick Add</div><div class="grid grid-cols-2 gap-2" id="misc-grid"></div>';
         const miscContainer = miscGroup.querySelector('#misc-grid');
-
         ['Exam', 'Study', 'Holiday'].forEach(type => {
-            const div = document.createElement('div');
-            div.className = "p-2 bg-purple-50 border border-purple-200 rounded text-center text-xs font-bold text-purple-700 cursor-grab hover:bg-purple-100";
-            div.innerText = type;
-            div.draggable = true;
+            const div = document.createElement('div'); div.className = "p-2 bg-purple-50 border border-purple-200 rounded text-center text-xs font-bold text-purple-700 cursor-grab hover:bg-purple-100"; div.innerText = type; div.draggable = true;
             div.ondragstart = (e) => { e.dataTransfer.setData('type', type.toLowerCase()); };
             miscContainer.appendChild(div);
         });
         list.appendChild(miscGroup);
     },
 
+    dragStartExisting: (e, id, title, hours) => {
+        e.dataTransfer.setData('type', 'move_schedule');
+        e.dataTransfer.setData('id', id);
+        e.stopPropagation(); 
+    },
+
     handleDrop: async (e, dateStr) => {
         e.preventDefault();
         const type = e.dataTransfer.getData('type');
-        let hours = 0; let unitId = null; let label = '';
 
-        // Calculate available hours
+        // CASE 1: Moving existing item
+        if (type === 'move_schedule') {
+            const id = e.dataTransfer.getData('id');
+            const item = schedulerManager.schedules.find(s => s.id == id);
+            if (!item) return;
+            
+            // Check capacity of target day
+            const existing = schedulerManager.schedules.filter(s => s.date === dateStr);
+            const used = existing.reduce((acc, s) => acc + s.hours_assigned, 0);
+            
+            if (used + item.hours_assigned > 6.5) {
+                if(!confirm(`Day will be over capacity (${used + item.hours_assigned}h). Move anyway?`)) return;
+            }
+
+            await sb.from('schedules').update({ date: dateStr }).eq('id', id);
+            await schedulerManager.init();
+            return;
+        }
+
+        // CASE 2: Dropping new item
+        let hours = 0; let unitId = null; let label = '';
         const existing = schedulerManager.schedules.filter(s => s.date === dateStr);
         const used = existing.reduce((acc, s) => acc + s.hours_assigned, 0);
         const available = Math.max(0, 6.5 - used);
 
-        if(available <= 0) return alert("Day is full (6.5h limit reached)!");
+        if(available <= 0) return alert("Day is full!");
 
         if(type === 'unit') {
             unitId = e.dataTransfer.getData('id');
-            const title = e.dataTransfer.getData('title');
-            const ask = prompt(`Assign hours for "${title}" on ${dateStr} (Max ${available}):`, available);
+            const ask = prompt(`Assign hours (Max ${available}):`, available);
             hours = parseFloat(ask);
             if(!hours || isNaN(hours)) return;
         } else {
             label = prompt(`Label for ${type}:`, type);
             if(!label) return;
-            hours = 6.5; // Default to full day for misc events
-            if(type !== 'holiday') {
-                const h = prompt("Hours?", available);
-                hours = parseFloat(h);
-            }
+            hours = 6.5;
+            if(type !== 'holiday') { const h = prompt("Hours?", available); hours = parseFloat(h); }
         }
 
-        // Insert into Database
-        const { error } = await sb.from('schedules').insert([{ 
-            course_id: state.activeCourse.id, 
-            unit_id: unitId, 
-            date: dateStr, 
-            hours_assigned: hours, 
-            type: type, 
-            label: label 
-        }]);
-        
-        if(error) {
-            console.error(error);
-            ui.toast("Failed to save: " + error.message, "error");
-        } else {
-            await schedulerManager.init(); // Refresh UI
-        }
+        await sb.from('schedules').insert([{ course_id: state.activeCourse.id, unit_id: unitId, date: dateStr, hours_assigned: hours, type: type, label: label }]);
+        await schedulerManager.init();
     },
     
-    // Improved Edit Logic with Modal Popup
     editDay: (dateStr) => {
         const slots = schedulerManager.schedules.filter(s => s.date === dateStr);
-        
-        // Remove existing modal if any
-        const existing = document.getElementById('day-editor-modal');
-        if(existing) existing.remove();
-
-        // Create Modal HTML
-        const modal = document.createElement('div');
-        modal.id = 'day-editor-modal';
-        modal.className = "fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 fade-in";
-        modal.onclick = (e) => { if(e.target === modal) modal.remove(); };
-        
-        let content = `
-            <div class="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden transform transition-all scale-100">
-                <div class="bg-teal-600 p-4 text-white flex justify-between items-center">
-                    <h3 class="font-bold flex items-center gap-2">
-                        <i class="fa-regular fa-calendar"></i>
-                        ${new Date(dateStr).toDateString()}
-                    </h3>
-                    <button onclick="document.getElementById('day-editor-modal').remove()" class="hover:text-red-200 transition">
-                        <i class="fa-solid fa-times text-lg"></i>
-                    </button>
-                </div>
-                <div class="p-4 space-y-2 max-h-[60vh] overflow-y-auto">
-        `;
-        
-        if(slots.length === 0) {
-            content += `<p class="text-gray-400 text-sm text-center italic py-4">No events scheduled for this day.</p>`;
-        } else {
+        const existing = document.getElementById('day-editor-modal'); if(existing) existing.remove();
+        const modal = document.createElement('div'); modal.id = 'day-editor-modal'; modal.className = "fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 fade-in"; modal.onclick = (e) => { if(e.target === modal) modal.remove(); };
+        let content = `<div class="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden transform transition-all scale-100"><div class="bg-teal-600 p-4 text-white flex justify-between items-center"><h3 class="font-bold flex items-center gap-2"><i class="fa-regular fa-calendar"></i> ${new Date(dateStr).toDateString()}</h3><button onclick="document.getElementById('day-editor-modal').remove()" class="hover:text-red-200 transition"><i class="fa-solid fa-times text-lg"></i></button></div><div class="p-4 space-y-2 max-h-[60vh] overflow-y-auto">`;
+        if(slots.length === 0) content += `<p class="text-gray-400 text-sm text-center italic py-4">No events scheduled.</p>`;
+        else {
             slots.forEach(s => {
                 const title = s.type === 'unit' ? (s.units?.title || 'Unknown Unit') : s.label;
-                const icon = s.type === 'unit' ? 'fa-book' : (s.type === 'exam' ? 'fa-file-signature' : 'fa-coffee');
+                const icon = s.type === 'unit' ? 'fa-book' : 'fa-coffee';
                 const badgeColor = s.type === 'unit' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700';
-
-                content += `
-                    <div class="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-lg hover:bg-slate-100 transition group">
-                        <div class="flex items-start gap-3">
-                            <div class="mt-1 text-gray-400"><i class="fa-solid ${icon}"></i></div>
-                            <div>
-                                <div class="font-bold text-sm text-gray-800">${title}</div>
-                                <span class="text-xs ${badgeColor} px-2 py-0.5 rounded font-medium">${s.hours_assigned} hours</span>
-                            </div>
-                        </div>
-                        <button onclick="schedulerManager.deleteSlot(${s.id})" class="text-gray-300 hover:text-red-500 p-2 transition">
-                            <i class="fa-solid fa-trash"></i>
-                        </button>
-                    </div>
-                `;
+                content += `<div class="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-lg hover:bg-slate-100 transition group"><div class="flex items-start gap-3"><div class="mt-1 text-gray-400"><i class="fa-solid ${icon}"></i></div><div><div class="font-bold text-sm text-gray-800">${title}</div><span class="text-xs ${badgeColor} px-2 py-0.5 rounded font-medium">${s.hours_assigned} hours</span></div></div><button onclick="schedulerManager.deleteSlot(${s.id})" class="text-gray-300 hover:text-red-500 p-2 transition"><i class="fa-solid fa-trash"></i></button></div>`;
             });
         }
-        
-        content += `</div></div>`;
-        modal.innerHTML = content;
-        document.body.appendChild(modal);
+        content += `</div></div>`; modal.innerHTML = content; document.body.appendChild(modal);
     },
+
+    deleteSlot: async (id) => {
+        if(!confirm("Remove?")) return;
+        await sb.from('schedules').delete().eq('id', id);
+        document.getElementById('day-editor-modal').remove();
+        schedulerManager.init();
+    },
+
     shiftSchedule: async () => {
-        if (schedulerManager.schedules.length === 0) return alert("No schedule to shift.");
+        if (schedulerManager.schedules.length === 0) return alert("No schedule.");
         const dates = schedulerManager.schedules.map(s => new Date(s.date));
         const currentStart = new Date(Math.min.apply(null, dates));
-        const newStartStr = prompt("Enter new start date (YYYY-MM-DD):", currentStart.toISOString().split('T')[0]);
+        const newStartStr = prompt("New start date (YYYY-MM-DD):", currentStart.toISOString().split('T')[0]);
         if (!newStartStr) return;
         const newStart = new Date(newStartStr);
         if (isNaN(newStart.getTime())) return alert("Invalid date.");
         const diffDays = Math.ceil((newStart - currentStart) / (1000 * 60 * 60 * 24)); 
         if (diffDays === 0) return alert("Date is the same.");
         if (!confirm(`Shift all items by ${diffDays} days?`)) return;
-
         for (const slot of schedulerManager.schedules) {
-            const newDate = new Date(slot.date);
-            newDate.setDate(newDate.getDate() + diffDays);
+            const newDate = new Date(slot.date); newDate.setDate(newDate.getDate() + diffDays);
             await sb.from('schedules').update({ date: newDate.toISOString().split('T')[0] }).eq('id', slot.id);
         }
-        ui.toast("Schedule shifted!", "success");
-        await schedulerManager.init();
-    },
-
-    deleteSlot: async (id) => {
-        if(!confirm("Remove this item?")) return;
-        const { error } = await sb.from('schedules').delete().eq('id', id);
-        
-        if(error) {
-            ui.toast(error.message, "error");
-        } else {
-            document.getElementById('day-editor-modal').remove();
-            schedulerManager.init(); // Refresh calendar
-            ui.toast("Item removed", "success");
-        }
+        ui.toast("Shifted!", "success"); await schedulerManager.init();
     }
 };
-
-function getIrishHolidays(year) {
-    return [`${year}-01-01`,`${year}-03-17`,`${year}-12-25`,`${year}-12-26`];
-}
-
-function getContentEmoji(type) {
-    switch (type) {
-        case 'audio':       return '🎧';  
-        case 'video':       return '🎥';  
-        case 'simulator':   return '⚡';  
-        case 'assignment':  return '📝';  
-        case 'quiz':        return '✅';  
-        case 'url':         return '🔗';  
-        case 'file':        return '📄';  
-        default:            return '📄';
-    }
-}
-
-function isAdmin() { return state.profile && ['instructor', 'super_admin'].includes(state.profile.global_role); }
-function getGradeInfo(score, total) {
-    if (!total || total === 0) return { pct: 0, label: 'No Data', color: 'bg-gray-100 text-gray-500' };
-    const pct = Math.round((score / total) * 100);
-    let label = 'Fail', color = 'bg-red-100 text-red-700';
-    if (pct >= 85) { label = 'Credit'; color = 'bg-purple-100 text-purple-700'; } 
-    else if (pct >= 70) { label = 'Pass'; color = 'bg-green-100 text-green-700'; }
-    return { pct, label, color };
-}
 
 document.addEventListener('DOMContentLoaded', () => {
     const loginForm = document.getElementById('auth-form');
