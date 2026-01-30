@@ -194,6 +194,9 @@
                             <div class="flex gap-2">
                                 <button onclick="schedulerManager.changeMonth(-1)" class="p-2 bg-gray-100 rounded hover:bg-gray-200 text-gray-600"><i class="fa-solid fa-chevron-left"></i></button>
                                 <button onclick="schedulerManager.changeMonth(1)" class="p-2 bg-gray-100 rounded hover:bg-gray-200 text-gray-600"><i class="fa-solid fa-chevron-right"></i></button>
+                            <button onclick="schedulerManager.shiftSchedule()" class="text-xs bg-orange-100 text-orange-700 px-3 py-1 rounded border border-orange-200 ml-4 hover:bg-orange-200">
+    <i class="fa-solid fa-clock-rotate-left"></i> Shift Dates
+</button>
                             </div>
                         </div>
                         <div id="calCont" class="flex-1 overflow-y-auto border border-gray-200 rounded-xl"></div>
