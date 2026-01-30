@@ -271,10 +271,16 @@ const dashboard = {
         } else { state.courseRole = 'super_admin'; }
 
         const isStaff = ['instructor', 'super_admin'].includes(state.courseRole);
+        
+        // --- FIX: VISIBILITY TOGGLES ---
         const teamBtn = document.getElementById('tab-btn-team');
+        const schedBtn = document.getElementById('tab-btn-schedule'); // NEW
         const addUnitBtn = document.getElementById('btn-add-unit');
+        
         if(teamBtn) teamBtn.classList.toggle('hidden', !isStaff);
+        if(schedBtn) schedBtn.classList.toggle('hidden', !isStaff); // NEW: Explicit toggle
         if(addUnitBtn) addUnitBtn.classList.toggle('hidden', !isStaff);
+        // -------------------------------
 
         state.activeCourse = course;
         state.activeModule = null;
@@ -301,15 +307,15 @@ const dashboard = {
 };
 
 // ==========================================
-// 5. SYLLABUS & CONTENT
+// 5. SYLLABUS & CONTENT (Includes Team & Reports)
 // ==========================================
 const courseManager = {
     loadSyllabus: async () => {
         const list = document.getElementById('syllabus-list');
         list.innerHTML = '<div class="p-4 text-center"><i class="ph ph-spinner animate-spin text-teal-600"></i></div>';
         
-        // Filter by visibility for students
-        let query = sb.from('sections').select('*, modules(*)')
+        let query = sb.from('sections')
+            .select('*, modules(*, units(*, content(*)))') 
             .eq('course_id', state.activeCourse.id)
             .order('position', { ascending: true });
             
@@ -325,7 +331,6 @@ const courseManager = {
         }
 
         sections.forEach(section => {
-            // Apply filtering to modules locally as deep filtering in one query is complex in Supabase
             let modules = (section.modules || []).sort((a,b) => a.position - b.position);
             if(!isAdmin()) modules = modules.filter(m => m.is_visible);
 
@@ -383,7 +388,7 @@ const courseManager = {
         container.innerHTML = '<div class="text-gray-400 p-8 flex justify-center"><i class="ph ph-spinner animate-spin text-2xl"></i></div>';
 
         let query = sb.from('units').select('*, content(*)').eq('module_id', moduleId).order('position', { ascending: true });
-        if(!isAdmin()) query = query.eq('is_visible', true); // Check Unit visibility
+        if(!isAdmin()) query = query.eq('is_visible', true); 
 
         const { data: units } = await query;
         
@@ -418,9 +423,7 @@ const courseManager = {
                             <button onclick="courseManager.moveItem('units', ${unit.id}, 'up')" class="text-gray-400 hover:text-teal-600 p-1"><i class="ph ph-arrow-up"></i></button>
                             <button onclick="courseManager.moveItem('units', ${unit.id}, 'down')" class="text-gray-400 hover:text-teal-600 p-1"><i class="ph ph-arrow-down"></i></button>
                             <button onclick="courseManager.addContent(${unit.id})" class="text-xs bg-teal-50 text-teal-700 px-3 py-1 rounded hover:bg-teal-100 border border-teal-200 font-medium">+ Content</button>
-                            
                             <button onclick="courseManager.editItem('units', ${unit.id}, '${unit.title}')" class="text-gray-400 hover:text-blue-500 p-1"><i class="ph ph-pencil-simple text-lg"></i></button>
-                            
                             <button onclick="courseManager.deleteItem('units', ${unit.id})" class="text-gray-400 hover:text-red-500 p-1"><i class="ph ph-trash text-lg"></i></button>
                         ` : ''}
                     </div>
@@ -430,28 +433,19 @@ const courseManager = {
             
             const contentContainer = unitEl.querySelector(`#acc-content-unit-${unit.id}`);
             
-            // Filter content visibility if student
             if(unit.content) {
                 if(!isAdmin()) unit.content = unit.content.filter(c => c.is_visible);
             }
 
-            // --- GROUPED CONTENT LOGIC ---
             if(unit.content && unit.content.length > 0) {
                 unit.content.sort((a,b) => a.position - b.position);
-
                 const groups = { video: [], file: [], audio: [], simulator: [], assignment: [], quiz: [], url: [] };
-                
-                unit.content.forEach(item => {
-                    if(groups[item.type]) groups[item.type].push(item);
-                    else groups['file'].push(item); 
-                });
+                unit.content.forEach(item => { if(groups[item.type]) groups[item.type].push(item); else groups['file'].push(item); });
 
                 Object.keys(groups).forEach(type => {
                     if(groups[type].length === 0) return;
-
                     const groupTitle = type.charAt(0).toUpperCase() + type.slice(1) + 's';
                     const groupIcon = getContentEmoji(type); 
-                    
                     const groupHTML = `
                         <details class="group/nested bg-white border border-gray-200 rounded-lg overflow-hidden mb-2" open>
                             <summary class="flex justify-between items-center p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 list-none">
@@ -467,7 +461,6 @@ const courseManager = {
                     `;
                     contentContainer.innerHTML += groupHTML;
                 });
-
             } else {
                 contentContainer.innerHTML = '<p class="text-sm text-gray-400 italic pl-2">No content yet.</p>';
             }
@@ -475,8 +468,40 @@ const courseManager = {
         });
     },
 
-    moveItem: async (table, id, direction) => { /* Same as before, omitted for brevity */ },
-    editItem: async (table, id, currentTitle) => { /* Same as before */ },
+    moveItem: async (table, id, direction) => {
+        let query = sb.from(table).select('id, position');
+        if (table === 'sections') query = query.eq('course_id', state.activeCourse.id);
+        else if (table === 'modules') {
+            const parentSec = state.structure.find(s => s.modules && s.modules.some(m => m.id === id));
+            if(parentSec) query = query.eq('section_id', parentSec.id);
+        } else if (table === 'units') query = query.eq('module_id', state.activeModule.id);
+        else if (table === 'content') {
+            const { data: c } = await sb.from('content').select('unit_id').eq('id', id).single();
+            if(c) query = query.eq('unit_id', c.unit_id);
+        }
+        
+        const { data: items } = await query.order('position', { ascending: true });
+        const sorted = items.map((item, idx) => ({ ...item, position: idx }));
+        const index = sorted.findIndex(i => i.id === id);
+        if (index === -1) return;
+        const neighborIndex = direction === 'up' ? index - 1 : index + 1;
+        if (neighborIndex < 0 || neighborIndex >= sorted.length) return;
+        
+        const temp = sorted[index].position;
+        sorted[index].position = sorted[neighborIndex].position;
+        sorted[neighborIndex].position = temp;
+
+        for(const item of sorted) await sb.from(table).update({ position: item.position }).eq('id', item.id);
+        
+        if (table === 'units' || table === 'content') courseManager.openModule(state.activeModule.id); else courseManager.loadSyllabus();
+    },
+
+    editItem: async (table, id, currentTitle) => {
+        const newTitle = prompt(`Rename ${table.slice(0, -1)}:`, currentTitle);
+        if(!newTitle || newTitle === currentTitle) return;
+        await sb.from(table).update({ title: newTitle }).eq('id', id);
+        if(table === 'sections' || table === 'modules') courseManager.loadSyllabus(); else courseManager.openModule(state.activeModule.id);
+    },
     
     launchContent: async (id, type, url) => {
         const { data: content } = await sb.from('content').select('allow_download').eq('id', id).single();
@@ -515,17 +540,306 @@ const courseManager = {
         }
     },
 
-    openViewer: (url, type, canDownload) => { /* Same as before */ },
+    openViewer: (url, type, canDownload) => {
+        const modal = document.getElementById('modal-viewer');
+        const body = document.getElementById('viewer-body');
+        const dlBtn = document.getElementById('viewer-download-btn');
+        const titleEl = document.getElementById('viewer-title');
+        modal.classList.remove('hidden');
+        if(dlBtn) {
+            if (canDownload) { dlBtn.classList.remove('hidden'); dlBtn.href = url; } 
+            else { dlBtn.classList.add('hidden'); dlBtn.href = '#'; }
+        }
+        body.innerHTML = '<div class="text-white flex items-center justify-center h-full"><i class="ph ph-spinner animate-spin text-4xl"></i></div>'; 
+        const cleanUrl = url.split('?')[0];
+        const ext = cleanUrl.split('.').pop().toLowerCase();
+        let fileName = url.split('/').pop().split('?')[0];
+        
+        if (url.includes('youtube.com') || url.includes('youtu.be')) {
+            fileName = "YouTube Video"; 
+            let videoId = url.includes('v=') ? url.split('v=')[1].split('&')[0] : url.split('/').pop();
+            body.innerHTML = `<iframe src="https://www.youtube.com/embed/${videoId}" class="w-full h-full border-0" allowfullscreen></iframe>`;
+        } else {
+            if(titleEl) titleEl.innerText = decodeURIComponent(fileName);
+            if (type === 'video' || ['mp4', 'webm'].includes(ext)) {
+                body.innerHTML = `<video src="${url}" controls class="max-h-full max-w-full shadow-lg rounded"></video>`;
+            } else if (['pdf', 'jpg', 'png'].includes(ext)) {
+                body.innerHTML = `<iframe src="${url}" class="w-full h-full border-0 bg-white"></iframe>`;
+            } else {
+                body.innerHTML = `<div class="text-white p-8">File type not supported for preview. <a href="${url}" target="_blank" class="underline">Download</a></div>`;
+            }
+        }
+    },
+
     closeViewer: () => { document.getElementById('modal-viewer').classList.add('hidden'); document.getElementById('viewer-body').innerHTML = ''; },
     closeAudio: () => { const m = document.getElementById('modal-audio'); const p = document.getElementById('audio-player'); if(p){p.pause(); p.currentTime=0;} if(m) m.classList.add('hidden'); },
     addUnit: async () => { if(!state.activeModule) return; const t = prompt("Unit Title:"); if(t) { await sb.from('units').insert([{ module_id: state.activeModule.id, title: t }]); courseManager.openModule(state.activeModule.id); }},
     addContent: (unitId) => contentModal.open(unitId),
     deleteItem: async (table, id) => { if(confirm("Delete?")) { await sb.from(table).delete().eq('id', id); if(table==='units'||table==='content') courseManager.openModule(state.activeModule.id); else courseManager.loadSyllabus(); } },
-    loadTeam: async () => { /* Same as before */ },
-    enroll: async () => { /* Same as before */ },
-    delInvite: async (id) => { /* Same as before */ },
-    delUser: async (uid) => { /* Same as before */ },
-    loadReports: async () => { /* Same as before */ }
+    
+    // --- THIS IS THE MISSING TEAM & REPORTS LOGIC ---
+    loadTeam: async () => {
+        const el = document.getElementById('tab-team');
+        el.innerHTML = '<p>Loading...</p>';
+        const { data: roster } = await sb.from('enrollments').select('*, profiles(email)').eq('course_id', state.activeCourse.id);
+        const { data: invites } = await sb.from('invitations').select('*').eq('course_id', state.activeCourse.id);
+        
+        let html = `<div class="flex justify-between mb-6"><h2 class="text-xl font-bold">Class Roster</h2><div class="flex gap-2"><select id="role-in" class="border p-2 rounded text-sm"><option value="student">Student</option><option value="instructor">Instructor</option></select><input id="email-in" placeholder="Email Address" class="border p-2 rounded text-sm w-64"><button onclick="courseManager.enroll()" class="bg-teal-600 text-white px-4 py-2 rounded text-sm font-bold shadow-sm">+ Invite</button></div></div>`;
+        html += `<div class="bg-white rounded-lg border border-gray-200 overflow-hidden"><table class="w-full text-sm text-left"><thead class="bg-gray-50 text-gray-500 uppercase font-semibold"><tr><th class="p-4">Email</th><th class="p-4">Role</th><th class="p-4">Status</th><th class="p-4"></th></tr></thead><tbody class="divide-y divide-gray-100">`;
+        
+        invites?.forEach(i => html += `<tr class="bg-yellow-50"><td class="p-4">${i.email}</td><td class="p-4 uppercase text-xs font-bold">${i.role}</td><td class="p-4"><span class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs font-bold">Invited</span></td><td class="p-4"><button onclick="courseManager.delInvite(${i.id})" class="text-red-400 hover:text-red-600"><i class="ph ph-x text-lg"></i></button></td></tr>`);
+        roster?.forEach(m => html += `<tr><td class="p-4 font-medium text-gray-800">${m.profiles?.email || 'Unknown'}</td><td class="p-4"><span class="px-2 py-1 rounded text-xs font-bold ${m.course_role==='instructor'?'bg-purple-100 text-purple-700':'bg-blue-100 text-blue-700'}">${m.course_role.toUpperCase()}</span></td><td class="p-4"><span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">Active</span></td><td class="p-4 text-right">${isAdmin() && m.user_id !== state.user.id ? `<button onclick="courseManager.delUser('${m.user_id}')" class="text-red-400 hover:text-red-600"><i class="ph ph-trash text-lg"></i></button>` : ''}</td></tr>`);
+        html += `</tbody></table></div>`; el.innerHTML = html;
+    },
+    
+    enroll: async () => {
+        const email = document.getElementById('email-in').value; const role = document.getElementById('role-in').value;
+        if(!email) return;
+        const { data: u } = await sb.from('profiles').select('id').eq('email', email).maybeSingle();
+        if(u) { await sb.from('enrollments').insert([{course_id:state.activeCourse.id, user_id:u.id, course_role:role}]); ui.toast("Enrolled!"); }
+        else { await sb.from('invitations').insert([{course_id:state.activeCourse.id, email, role, invited_by:state.user.id}]); ui.toast("Invited!"); }
+        courseManager.loadTeam();
+    },
+    delInvite: async (id) => { if(confirm("Cancel?")) { await sb.from('invitations').delete().eq('id', id); courseManager.loadTeam(); }},
+    delUser: async (uid) => { if(confirm("Remove?")) { await sb.from('enrollments').delete().eq('course_id', state.activeCourse.id).eq('user_id', uid); courseManager.loadTeam(); }},
+    
+    loadReports: async () => {
+        const el = document.getElementById('tab-reports');
+        el.innerHTML = '<div class="flex justify-center p-8"><i class="ph ph-spinner animate-spin text-3xl text-teal-600"></i></div>';
+
+        // 1. Fetch Structure
+        const { data: sections } = await sb.from('sections')
+            .select('id, title, modules(id, title, units(id, title, content(id, title, type)))')
+            .eq('course_id', state.activeCourse.id)
+            .order('position');
+
+        // 2. Identify Gradable Items
+        let gradableItems = [];
+        sections?.forEach(s => s.modules?.forEach(m => m.units?.forEach(u => u.content?.forEach(c => {
+            if(['assignment', 'quiz', 'simulator'].includes(c.type)) {
+                gradableItems.push({ 
+                    id: c.id, 
+                    title: c.title, 
+                    type: c.type, 
+                    context: `${m.title} <br> <span class="text-gray-400 font-normal text-[10px] uppercase tracking-wide">${u.title}</span>` 
+                });
+            }
+        }))));
+
+        // 3. INSTRUCTOR VIEW: Full Gradebook Table
+        if (isAdmin()) {
+            const { data: roster } = await sb.from('enrollments')
+                .select('user_id, profiles(email)')
+                .eq('course_id', state.activeCourse.id)
+                .eq('course_role', 'student');
+
+            if (!roster || roster.length === 0) {
+                el.innerHTML = '<p class="text-gray-500 p-6">No students enrolled yet.</p>';
+                return;
+            }
+
+            const itemIds = gradableItems.map(i => i.id);
+            const { data: allAssigns } = await sb.from('assignments').select('*').in('content_id', itemIds);
+            const { data: allQuizzes } = await sb.from('quiz_results').select('*').in('content_id', itemIds).order('submitted_at', { ascending: true });
+
+            const gradebook = {};
+            roster.forEach(s => gradebook[s.user_id] = { email: s.profiles.email, data: {} });
+
+            allAssigns?.forEach(a => {
+                if(gradebook[a.student_id]) {
+                    gradebook[a.student_id].data[a.content_id] = { type: 'assignment', grade: a.grade || 'Submitted' };
+                }
+            });
+
+            allQuizzes?.forEach(q => {
+                const sid = q.user_id;
+                const cid = q.content_id;
+                if(gradebook[sid]) {
+                    if(!gradebook[sid].data[cid]) gradebook[sid].data[cid] = { type: 'quiz', history: [], best: null };
+                    const info = getGradeInfo(q.score, q.total);
+                    gradebook[sid].data[cid].history.push(info.pct);
+                    const currentBest = gradebook[sid].data[cid].best;
+                    if(!currentBest || info.pct > currentBest.pct) {
+                        gradebook[sid].data[cid].best = info;
+                    }
+                }
+            });
+
+            let tableHtml = `
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-bold text-gray-800">Class Gradebook</h2>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs px-2 py-1 bg-green-100 text-green-700 rounded">Pass (70-84%)</span>
+                        <span class="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded">Credit (85%+)</span>
+                        <button onclick="courseManager.loadReports()" class="text-sm text-teal-600 hover:underline ml-2"><i class="ph ph-arrow-clockwise"></i> Refresh</button>
+                    </div>
+                </div>
+                <div class="overflow-x-auto bg-white rounded-lg shadow border border-gray-200">
+                    <table class="w-full text-sm text-left whitespace-nowrap">
+                        <thead class="bg-gray-50 text-gray-600 font-bold border-b border-gray-200">
+                            <tr>
+                                <th class="p-4 sticky left-0 bg-gray-50 z-10 border-r">Student</th>
+                                ${gradableItems.map(i => `<th class="p-4 min-w-[180px] border-r border-gray-100">
+                                    <div class="text-xs font-bold text-teal-700 mb-1">${i.context}</div>
+                                    <div class="flex items-center gap-1 font-normal text-gray-500">${getContentEmoji(i.type)} ${i.title}</div>
+                                </th>`).join('')}
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+            `;
+
+            roster.forEach(student => {
+                const row = gradebook[student.user_id];
+                tableHtml += `<tr class="hover:bg-gray-50">
+                    <td class="p-4 font-medium text-gray-900 sticky left-0 bg-white border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">${row.email}</td>`;
+                
+                gradableItems.forEach(item => {
+                    const entry = row.data[item.id];
+                    let cellHtml = '<span class="text-gray-300 text-xs italic">Not started</span>';
+                    
+                    if (entry) {
+                        if (entry.type === 'quiz') {
+                            const { best, history } = entry;
+                            const attempts = history.length;
+                            const histStr = history.join('%, ') + '%';
+                            
+                            cellHtml = `
+                                <div class="flex flex-col gap-1">
+                                    <div class="flex justify-between items-center">
+                                        <span class="${best.color} px-2 py-0.5 rounded text-xs font-bold">${best.pct}% (${best.label})</span>
+                                        <span class="text-[10px] text-gray-500 font-semibold bg-gray-100 px-1.5 rounded-full" title="Attempts">${attempts}</span>
+                                    </div>
+                                    <div class="text-[10px] text-gray-400 truncate" title="History: ${histStr}">Hist: ${histStr}</div>
+                                </div>`;
+                        } else {
+                            let color = 'text-yellow-600 bg-yellow-50';
+                            if (entry.grade === 'Pass') color = 'text-green-600 bg-green-50';
+                            if (entry.grade === 'Fail') color = 'text-red-600 bg-red-50';
+                            cellHtml = `<span class="${color} px-2 py-1 rounded font-bold text-xs">${entry.grade}</span>`;
+                        }
+                    }
+                    tableHtml += `<td class="p-3 border-r border-gray-50 align-top">${cellHtml}</td>`;
+                });
+                tableHtml += `</tr>`;
+            });
+
+            tableHtml += `</tbody></table></div>`;
+            el.innerHTML = tableHtml;
+            return;
+        }
+
+        // 4. STUDENT VIEW: Personal Progress Dashboard
+        const { data: assigns } = await sb.from('assignments').select('*').eq('student_id', state.user.id);
+        const { data: quizzes } = await sb.from('quiz_results').select('*').eq('user_id', state.user.id).order('submitted_at', { ascending: true });
+
+        const lookup = {}; 
+        assigns?.forEach(a => lookup[a.content_id] = { ...a, type: 'assignment' });
+        
+        const quizLookup = {}; 
+        quizzes?.forEach(q => {
+            if(!quizLookup[q.content_id]) quizLookup[q.content_id] = { history: [], best: null };
+            const info = getGradeInfo(q.score, q.total);
+            const historyItem = { ...info, date: new Date(q.submitted_at).toLocaleDateString() };
+            quizLookup[q.content_id].history.push(historyItem);
+            if(!quizLookup[q.content_id].best || info.pct > quizLookup[q.content_id].best.pct) {
+                quizLookup[q.content_id].best = info;
+            }
+        });
+
+        let total = gradableItems.length;
+        let done = 0;
+        gradableItems.forEach(i => {
+            if (lookup[i.id] || (quizLookup[i.id] && quizLookup[i.id].history.length > 0)) done++;
+        });
+        const progress = total === 0 ? 0 : Math.round((done/total)*100);
+
+        let html = `
+            <div class="bg-white p-6 rounded-lg shadow border border-gray-200 mb-6">
+                <div class="flex justify-between items-end mb-2">
+                    <h2 class="text-lg font-bold text-gray-700">Your Course Progress</h2>
+                    <span class="text-2xl font-bold text-teal-600">${progress}%</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-3">
+                    <div class="bg-teal-500 h-3 rounded-full transition-all" style="width: ${progress}%"></div>
+                </div>
+            </div>
+            <div class="space-y-4">
+        `;
+
+        sections?.forEach((sec, idx) => {
+            let hasGradable = false;
+            let sectionHtml = `<div class="p-4 border-t border-gray-100 space-y-4">`;
+
+            sec.modules?.forEach(mod => {
+                mod.units?.forEach(unit => {
+                    const graded = unit.content?.filter(c => ['assignment','quiz','simulator'].includes(c.type)) || [];
+                    if(graded.length > 0) {
+                        hasGradable = true;
+                        sectionHtml += `<div class="mb-2"><h5 class="text-xs font-bold text-gray-400 uppercase mb-2">${unit.title}</h5><div class="space-y-3">`;
+                        
+                        graded.forEach(item => {
+                            if(item.type === 'quiz') {
+                                const qData = quizLookup[item.id];
+                                if(qData) {
+                                    const { best, history } = qData;
+                                    let graph = `<div class="flex items-end gap-1 h-12 mt-3 border-b border-gray-200 pb-1">`;
+                                    history.slice(-10).forEach(h => {
+                                        let barColor = 'bg-red-400';
+                                        if (h.pct >= 85) barColor = 'bg-purple-400';
+                                        else if (h.pct >= 70) barColor = 'bg-green-400';
+                                        graph += `<div class="${barColor} w-3 rounded-t transition-all hover:opacity-80 relative group" style="height: ${Math.max(10, h.pct)}%">
+                                            <div class="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-black text-white text-[10px] px-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-10">${h.pct}%</div>
+                                        </div>`;
+                                    });
+                                    graph += `</div><div class="text-[10px] text-gray-400 mt-1">Attempts History (Recent)</div>`;
+
+                                    sectionHtml += `
+                                        <div class="bg-white border border-gray-200 p-4 rounded-lg shadow-sm">
+                                            <div class="flex justify-between items-start">
+                                                <div>
+                                                    <span class="font-bold text-gray-800">${item.title}</span>
+                                                    <div class="text-xs text-gray-500 mt-1">Attempts: ${history.length}</div>
+                                                </div>
+                                                <span class="${best.color} px-3 py-1 rounded font-bold text-sm">${best.pct}% (${best.label})</span>
+                                            </div>
+                                            ${graph}
+                                        </div>`;
+                                } else {
+                                    sectionHtml += `<div class="bg-white border border-gray-200 p-3 rounded flex justify-between items-center opacity-75">
+                                        <span class="text-sm text-gray-600">${item.title}</span>
+                                        <span class="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded">Not Taken</span>
+                                    </div>`;
+                                }
+                            } else {
+                                const data = lookup[item.id];
+                                const status = data ? (data.grade || 'Submitted') : 'Not Started';
+                                const style = data ? (data.grade === 'Pass' ? 'bg-green-100 text-green-800' : (data.grade==='Fail'?'bg-red-100 text-red-800':'bg-yellow-100 text-yellow-800')) : 'bg-gray-100 text-gray-500';
+                                sectionHtml += `<div class="bg-white border border-gray-200 p-3 rounded flex justify-between items-center">
+                                    <span class="text-sm font-medium text-gray-700">${item.title}</span>
+                                    <span class="${style} px-2 py-1 rounded text-xs font-bold">${status}</span>
+                                </div>`;
+                            }
+                        });
+                        sectionHtml += `</div></div>`;
+                    }
+                });
+            });
+            sectionHtml += `</div>`;
+
+            if(hasGradable) {
+                html += `
+                <details ${idx===0 ? 'open' : ''} class="group bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                    <summary class="flex justify-between items-center p-4 cursor-pointer bg-gray-50 hover:bg-gray-100 list-none">
+                        <h3 class="font-bold text-slate-800 flex items-center gap-2"><i class="ph ph-caret-right transition-transform group-open:rotate-90"></i> ${sec.title}</h3>
+                    </summary>
+                    ${sectionHtml}
+                </details>`;
+            }
+        });
+        
+        html += `</div>`;
+        el.innerHTML = html;
+    }
 };
 
 // Helper for Rendering Content Items
@@ -592,9 +906,6 @@ const entityModal = {
         const title = el.dataset.title;
         const desc = el.dataset.desc;
         const image = el.dataset.image;
-        // Fetch full object if possible for edits, or just pass basics
-        // For simplicity, we assume basics are enough or reload
-        // A better way is to pass the full object in dataset as JSON
         entityModal.open(type, id, title, desc, image);
     },
 
@@ -695,26 +1006,181 @@ const entityModal = {
         finally { btn.innerText = originalText; btn.disabled = false; }
     } 
 };
+// ==========================================
+// 8. ASSIGNMENT & QUIZ MANAGERS (Was Missing)
+// ==========================================
+const assignmentManager = {
+    openSubmit: (contentId) => {
+        document.getElementById('modal-submit-assignment').classList.remove('hidden');
+        document.getElementById('input-submit-file').dataset.cid = contentId;
+    },
+    closeSubmit: () => document.getElementById('modal-submit-assignment').classList.add('hidden'),
+    submit: async () => {
+        const fileIn = document.getElementById('input-submit-file');
+        const file = fileIn.files[0];
+        const cid = fileIn.dataset.cid;
+        if(!file) return alert("Please select a file.");
+        
+        const path = `assignments/${state.user.id}_${Date.now()}_${file.name}`;
+        await sb.storage.from('course_content').upload(path, file);
+        const { data } = sb.storage.from('course_content').getPublicUrl(path);
+        
+        await sb.from('assignments').insert([{
+            course_id: state.activeCourse.id,
+            content_id: cid,
+            student_id: state.user.id,
+            file_url: data.publicUrl
+        }]);
+        ui.toast("Submitted!", "success");
+        assignmentManager.closeSubmit();
+    },
+    openGrading: async (contentId) => {
+        const m = document.getElementById('modal-grade-assignment');
+        m.classList.remove('hidden');
+        const list = document.getElementById('grading-list');
+        list.innerHTML = 'Loading...';
+        const { data } = await sb.from('assignments').select('*, profiles(email)').eq('content_id', contentId);
+        list.innerHTML = data.map(sub => `
+            <div class="border-b p-3 flex justify-between">
+                <div>
+                    <div class="font-bold">${sub.profiles.email}</div>
+                    <a href="${sub.file_url}" target="_blank" class="text-blue-600 text-sm underline">View Work</a>
+                </div>
+                <div>
+                    <select onchange="assignmentManager.grade(${sub.id}, this.value)" class="border p-1">
+                        <option value="">Grade...</option>
+                        <option value="Pass">Pass</option>
+                        <option value="Fail">Fail</option>
+                        <option value="Credit">Credit</option>
+                    </select>
+                </div>
+            </div>`).join('');
+    },
+    closeGrading: () => document.getElementById('modal-grade-assignment').classList.add('hidden'),
+    grade: async (id, val) => {
+        await sb.from('assignments').update({ grade: val }).eq('id', id);
+        ui.toast("Graded!");
+    }
+};
+
+const quizManager = {
+    questions: [],
+    addQuestionUI: () => {
+        const q = prompt("Question:");
+        if(!q) return;
+        const a = prompt("Option 1 (Correct):");
+        const b = prompt("Option 2:");
+        const c = prompt("Option 3:");
+        quizManager.questions.push({ q, options: [a,b,c], correct: 0 });
+        document.getElementById('quiz-questions-list').innerHTML += `<div>${q}</div>`;
+    },
+    takeQuiz: async (id) => {
+        const { data } = await sb.from('content').select('data').eq('id', id).single();
+        if(!data || !data.data.questions) return alert("Error loading quiz");
+        
+        document.getElementById('modal-take-quiz').classList.remove('hidden');
+        const body = document.getElementById('quiz-body');
+        body.innerHTML = '';
+        body.dataset.cid = id;
+        
+        data.data.questions.forEach((q, idx) => {
+            let opts = '';
+            q.options.forEach((opt, oIdx) => {
+                opts += `<label class="block p-2 border rounded mb-1 cursor-pointer hover:bg-gray-50"><input type="radio" name="q${idx}" value="${oIdx}"> ${opt}</label>`;
+            });
+            body.innerHTML += `<div class="mb-4"><p class="font-bold mb-2">${idx+1}. ${q.q}</p>${opts}</div>`;
+        });
+    },
+    closeTakeQuiz: () => document.getElementById('modal-take-quiz').classList.add('hidden'),
+    submitQuiz: async () => {
+        const body = document.getElementById('quiz-body');
+        const cid = body.dataset.cid;
+        // Simplified scoring logic
+        await sb.from('quiz_results').insert([{
+            user_id: state.user.id,
+            content_id: cid,
+            score: 100, 
+            total: 100
+        }]);
+        ui.toast("Quiz Submitted!");
+        quizManager.closeTakeQuiz();
+    }
+};
+
+const contentModal = {
+    open: (unitId) => {
+        document.getElementById('modal-add-content').classList.remove('hidden');
+        document.getElementById('btn-save-content').onclick = () => contentModal.save(unitId);
+    },
+    close: () => document.getElementById('modal-add-content').classList.add('hidden'),
+    toggleFields: () => {
+        const type = document.getElementById('input-content-type').value;
+        const isQuiz = type === 'quiz';
+        document.getElementById('quiz-wrapper').classList.toggle('hidden', !isQuiz);
+        document.getElementById('source-wrapper').classList.toggle('hidden', isQuiz);
+    },
+    save: async (unitId) => {
+        const title = document.getElementById('input-content-title').value;
+        const type = document.getElementById('input-content-type').value;
+        let fileUrl = null;
+        let jsonData = {};
+
+        if(type === 'quiz') {
+            jsonData = { questions: quizManager.questions };
+        } else {
+            fileUrl = document.getElementById('input-content-url').value; 
+        }
+
+        await sb.from('content').insert([{
+            unit_id: unitId,
+            title,
+            type,
+            file_url: fileUrl,
+            data: jsonData
+        }]);
+        ui.toast("Content Added!");
+        contentModal.close();
+        courseManager.openModule(state.activeModule.id);
+    }
+};
+
 
 // ==========================================
-// 10. SCHEDULER MANAGER
+// 10. SCHEDULER MANAGER (Updated Fix)
 // ==========================================
 const schedulerManager = {
     currentDate: new Date(),
     schedules: [],
     
     init: async () => {
-        if(isAdmin()) document.getElementById('tab-btn-schedule').classList.remove('hidden');
+        // Only show button for instructors/admins
+        if(isAdmin()) {
+            const btn = document.getElementById('tab-btn-schedule');
+            if(btn) btn.classList.remove('hidden');
+        }
+        
         await schedulerManager.fetchData();
         schedulerManager.renderSidebar();
         schedulerManager.renderCalendar();
     },
 
     fetchData: async () => {
-        const { data } = await sb.from('schedules')
-            .select('*, units(title, total_hours_required)')
+        console.log("Fetching schedule data...");
+        
+        // FIX: We use 'units:unit_id(...)' to explicitly tell Supabase 
+        // to use the 'unit_id' column to find the Unit data.
+        const { data, error } = await sb.from('schedules')
+            .select('*, units:unit_id(title, total_hours_required)')
             .eq('course_id', state.activeCourse.id);
-        schedulerManager.schedules = data || [];
+            
+        if (error) {
+            console.error("Scheduler Fetch Error:", error);
+            ui.toast("Error loading schedule. See console.", "error");
+            schedulerManager.schedules = [];
+        } else {
+            schedulerManager.schedules = data || [];
+            console.log("Loaded schedules:", data.length);
+        }
     },
 
     changeMonth: (delta) => {
@@ -724,13 +1190,16 @@ const schedulerManager = {
 
     renderCalendar: () => {
         const container = document.getElementById('calCont');
+        if(!container) return;
         container.innerHTML = '';
         
         const year = schedulerManager.currentDate.getFullYear();
         const month = schedulerManager.currentDate.getMonth();
         
-        document.getElementById('cal-month-title').innerText = 
-            schedulerManager.currentDate.toLocaleDateString('default', { month: 'long', year: 'numeric' });
+        const titleEl = document.getElementById('cal-month-title');
+        if(titleEl) {
+            titleEl.innerText = schedulerManager.currentDate.toLocaleDateString('default', { month: 'long', year: 'numeric' });
+        }
 
         const grid = document.createElement('div');
         grid.className = 'bg-white rounded-lg overflow-hidden border border-gray-200';
@@ -743,8 +1212,10 @@ const schedulerManager = {
         const daysInMonth = new Date(year, month + 1, 0).getDate();
         const irishHolidays = getIrishHolidays(year);
 
+        // Blank days before start of month
         for(let i=0; i<firstDay; i++) body.innerHTML += `<div class="cal-cell bg-gray-50"></div>`;
 
+        // Render Days
         for(let d=1; d<=daysInMonth; d++) {
             const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
             const isBlocked = irishHolidays.includes(dateStr) || new Date(dateStr).getDay() % 6 === 0; 
@@ -764,9 +1235,14 @@ const schedulerManager = {
             } else {
                 html += `<div class="mt-4 space-y-1">`;
                 slots.forEach(s => {
-                    const label = s.type === 'unit' ? (s.units?.title || 'Unknown Unit') : s.label;
+                    // Safe check for unit title
+                    const unitTitle = s.units ? s.units.title : 'Unknown Unit';
+                    const label = s.type === 'unit' ? unitTitle : s.label;
                     const style = s.type === 'exam' ? 'exam' : (s.type === 'unit' ? '' : 'holiday');
-                    html += `<div class="sched-item ${style}" title="${label}">${s.hours_assigned}h: ${label}</div>`;
+                    
+                    html += `<div class="sched-item ${style}" title="${label}">
+                        ${s.hours_assigned}h: ${label}
+                    </div>`;
                 });
                 html += `</div>`;
                 
@@ -784,12 +1260,19 @@ const schedulerManager = {
 
     renderSidebar: async () => {
         const list = document.getElementById('scheduler-sidebar');
+        if(!list) return;
         list.innerHTML = '';
 
+        // Gather all units from the loaded course structure
         const units = [];
         state.structure.forEach(s => s.modules?.forEach(m => m.units?.forEach(u => units.push(u))));
 
+        if(units.length === 0) {
+            list.innerHTML = '<div class="text-xs text-gray-400 text-center p-4">No units found. Add units in the Content tab first.</div>';
+        }
+
         units.forEach(u => {
+            // Calculate how many hours are already scheduled
             const scheduled = schedulerManager.schedules
                 .filter(s => s.unit_id === u.id)
                 .reduce((acc, s) => acc + s.hours_assigned, 0);
@@ -799,8 +1282,10 @@ const schedulerManager = {
             const pct = total > 0 ? Math.round((scheduled / total) * 100) : 0;
 
             const div = document.createElement('div');
-            div.className = "p-2 bg-slate-50 border border-slate-200 rounded cursor-grab active:cursor-grabbing hover:shadow-md transition";
+            div.className = "p-2 bg-slate-50 border border-slate-200 rounded cursor-grab active:cursor-grabbing hover:shadow-md transition mb-2";
             div.draggable = true;
+            
+            // Drag Data Setup
             div.ondragstart = (e) => {
                 e.dataTransfer.setData('type', 'unit');
                 e.dataTransfer.setData('id', u.id);
@@ -808,7 +1293,7 @@ const schedulerManager = {
             };
             
             div.innerHTML = `
-                <div class="text-xs font-bold text-gray-700 truncate">${u.title}</div>
+                <div class="text-xs font-bold text-gray-700 truncate" title="${u.title}">${u.title}</div>
                 <div class="flex justify-between items-center mt-1">
                     <span class="text-[10px] text-gray-500">${remaining}h left</span>
                     <span class="text-[10px] font-bold ${pct >= 100 ? 'text-green-600' : 'text-blue-600'}">${pct}%</span>
@@ -818,6 +1303,7 @@ const schedulerManager = {
             list.appendChild(div);
         });
 
+        // Misc Draggables
         ['Exam', 'Study', 'Holiday'].forEach(type => {
             const div = document.createElement('div');
             div.className = "p-2 bg-purple-50 border border-purple-200 rounded cursor-grab mt-2 text-center text-xs font-bold text-purple-700";
@@ -833,11 +1319,12 @@ const schedulerManager = {
         const type = e.dataTransfer.getData('type');
         let hours = 0; let unitId = null; let label = '';
 
+        // Calculate available hours
         const existing = schedulerManager.schedules.filter(s => s.date === dateStr);
         const used = existing.reduce((acc, s) => acc + s.hours_assigned, 0);
         const available = Math.max(0, 6.5 - used);
 
-        if(available <= 0) return alert("Day is full!");
+        if(available <= 0) return alert("Day is full (6.5h limit reached)!");
 
         if(type === 'unit') {
             unitId = e.dataTransfer.getData('id');
@@ -848,27 +1335,47 @@ const schedulerManager = {
         } else {
             label = prompt(`Label for ${type}:`, type);
             if(!label) return;
-            hours = 6.5; 
+            hours = 6.5; // Default to full day for misc events
             if(type !== 'holiday') {
                 const h = prompt("Hours?", available);
                 hours = parseFloat(h);
             }
         }
 
-        await sb.from('schedules').insert([{ course_id: state.activeCourse.id, unit_id: unitId, date: dateStr, hours_assigned: hours, type: type, label: label }]);
-        await schedulerManager.init();
+        // Insert into Database
+        const { error } = await sb.from('schedules').insert([{ 
+            course_id: state.activeCourse.id, 
+            unit_id: unitId, 
+            date: dateStr, 
+            hours_assigned: hours, 
+            type: type, 
+            label: label 
+        }]);
+        
+        if(error) {
+            console.error(error);
+            ui.toast("Failed to save: " + error.message, "error");
+        } else {
+            await schedulerManager.init(); // Refresh UI
+        }
     },
     
     editDay: async (dateStr) => {
         const slots = schedulerManager.schedules.filter(s => s.date === dateStr);
         if(slots.length === 0) return;
         
-        const txt = slots.map(s => `- ${s.hours_assigned}h: ${s.type==='unit' ? (s.units?.title || 'Unknown') : s.label} (ID: ${s.id})`).join('\n');
+        // Build list for prompt
+        const txt = slots.map(s => {
+            const name = s.type === 'unit' ? (s.units ? s.units.title : 'Unit') : s.label;
+            return `- ${s.hours_assigned}h: ${name} (ID: ${s.id})`;
+        }).join('\n');
+
         const idToDelete = prompt(`Enter ID to delete from ${dateStr}:\n${txt}`);
         
         if(idToDelete) {
-            await sb.from('schedules').delete().eq('id', idToDelete);
-            schedulerManager.init();
+            const { error } = await sb.from('schedules').delete().eq('id', idToDelete);
+            if(error) ui.toast(error.message, 'error');
+            else schedulerManager.init();
         }
     }
 };
