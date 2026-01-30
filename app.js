@@ -15,51 +15,57 @@ const state = {
 // ==========================================
 // 2. HELPER FUNCTIONS
 // ==========================================
-
-// --- SMART IRISH HOLIDAY CALCULATOR ---
 function getIrishHolidays(year) {
-    const holidays = [];
+    const holidays = [
+        `${year}-01-01`, // New Year's
+        `${year}-03-17`, // St Patrick's
+        `${year}-12-25`, // Christmas
+        `${year}-12-26`  // St Stephen's
+    ];
 
-    // 1. Fixed Dates
-    holidays.push(`${year}-01-01`); // New Year's
-    holidays.push(`${year}-03-17`); // St Patrick's
-    holidays.push(`${year}-12-25`); // Christmas
-    holidays.push(`${year}-12-26`); // St Stephen's
-
-    // 2. St. Brigid's Day (1st Feb if Friday, else first Monday in Feb)
+    // St Brigid's Day (1st Feb if Friday, else next Monday)
     const feb1 = new Date(year, 1, 1);
-    if (feb1.getDay() === 5) { // Friday
-        holidays.push(`${year}-02-01`);
-    } else {
+    if (feb1.getDay() === 5) holidays.push(`${year}-02-01`); 
+    else {
         let d = new Date(year, 1, 1);
-        while (d.getDay() !== 1) d.setDate(d.getDate() + 1); // Find next Monday
+        while (d.getDay() !== 1) d.setDate(d.getDate() + 1);
         holidays.push(d.toISOString().split('T')[0]);
     }
 
-    // 3. Easter Monday Calculation
-    const a = year % 19, b = Math.floor(year / 100), c = year % 100;
-    const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
-    const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
-    const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
-    const m = Math.floor((a + 11 * h + 22 * l) / 451);
-    const month = Math.floor((h + l - 7 * m + 114) / 31);
-    const day = ((h + l - 7 * m + 114) % 31) + 1;
-    const easterSunday = new Date(year, month - 1, day);
-    const easterMonday = new Date(easterSunday);
-    easterMonday.setDate(easterMonday.getDate() + 1);
-    holidays.push(easterMonday.toISOString().split('T')[0]);
+    // Helper: Nth Monday
+    const getMonday = (month, n) => {
+        let d = new Date(year, month, 1);
+        let count = 0;
+        while (d.getMonth() === month) {
+            if (d.getDay() === 1) {
+                count++;
+                if (count === n) return d.toISOString().split('T')[0];
+            }
+            d.setDate(d.getDate() + 1);
+        }
+    };
+    // Helper: Last Monday
+    const getLastMonday = (month) => {
+        let d = new Date(year, month + 1, 0);
+        while (d.getDay() !== 1) d.setDate(d.getDate() - 1);
+        return d.toISOString().split('T')[0];
+    };
 
-    // 4. Floating Bank Holidays (First Monday of May, June, August)
-    [4, 5, 7].forEach(mIndex => { // 4=May, 5=Jun, 7=Aug
-        let d = new Date(year, mIndex, 1);
-        while (d.getDay() !== 1) d.setDate(d.getDate() + 1);
-        holidays.push(d.toISOString().split('T')[0]);
-    });
+    holidays.push(getMonday(4, 1)); // May
+    holidays.push(getMonday(5, 1)); // June
+    holidays.push(getMonday(7, 1)); // August
+    holidays.push(getLastMonday(9)); // October
 
-    // 5. October Bank Holiday (Last Monday in October)
-    let octD = new Date(year, 10, 0); // Last day of Oct
-    while (octD.getDay() !== 1) octD.setDate(octD.getDate() - 1);
-    holidays.push(octD.toISOString().split('T')[0]);
+    // Easter
+    const f = Math.floor, y = year;
+    const G = y % 19, C = f(y / 100), H = (C - f(C / 4) - f((8 * C + 13) / 25) + 19 * G + 15) % 30;
+    const I = H - f(H / 28) * (1 - f(29 / (H + 1)) * f((21 - G) / 11));
+    const J = (y + f(y / 4) + I + 2 - C + f(C / 4)) % 7;
+    const L = I - J;
+    const month = 3 + f((L + 40) / 44);
+    const day = L + 28 - 31 * f(month / 4);
+    const easterMon = new Date(year, month - 1, day + 1);
+    holidays.push(easterMon.toISOString().split('T')[0]);
 
     return holidays;
 }
@@ -83,7 +89,6 @@ function getGradeInfo(score, total) {
     return { pct, label, color };
 }
 
-// Global Content Renderer
 function renderContentItem(file, unitId, myWork) {
     let emoji = getContentEmoji(file.type);
     let actionHtml = '';
@@ -109,7 +114,7 @@ function renderContentItem(file, unitId, myWork) {
             actionHtml = `<button onclick="event.stopPropagation(); quizManager.takeQuiz(${file.id})" class="text-xs px-3 py-1 rounded bg-purple-600 text-white hover:bg-purple-700 shadow-sm font-medium">${status}</button>`;
         }
     }
-
+    
     // JSON Stringify for editing
     const safeFile = JSON.stringify(file).replace(/'/g, "&#39;").replace(/"/g, "&quot;");
 
@@ -450,89 +455,6 @@ const courseManager = {
             if(!document.getElementById('tab-schedule').classList.contains('hidden')) schedulerManager.renderSidebar(); 
         } catch (e) { ui.toast("Error updating hours", "error"); }
     },
-    // ... existing updateHours function ...
-
-    // --- PASTE THIS BLOCK INSIDE courseManager ---
-    
-    updateEntity: async (table, id, field, value) => {
-        await sb.from(table).update({ [field]: value }).eq('id', id);
-    },
-
-    bulkCreate: async (type, parentId) => {
-        const title = prompt(`Enter ${type} title:`);
-        if(!title) return;
-        
-        const payload = { title, is_visible: true };
-        if(type === 'section') payload.course_id = state.activeCourse.id;
-        else if(type === 'module') payload.section_id = parentId;
-        else if(type === 'unit') { payload.module_id = parentId; payload.total_hours_required = 0; }
-        
-        await sb.from(type + 's').insert([payload]);
-        // Refresh the modal
-        document.querySelector('.fixed.inset-0').remove(); 
-        courseManager.openBulkEdit();
-    },
-
-    openBulkEdit: async () => {
-        const { data: sections } = await sb.from('sections')
-            .select('id, title, position, modules(id, title, position, units(id, title, total_hours_required, position))')
-            .eq('course_id', state.activeCourse.id)
-            .order('position', { ascending: true });
-
-        // Flatten hierarchy for table view
-        let rows = [];
-        sections?.forEach(sec => {
-            rows.push({ type: 'section', id: sec.id, title: sec.title, indent: 0 });
-            rows.push({ type: 'btn-module', parentId: sec.id, indent: 1 }); // Add Module Button
-
-            sec.modules?.sort((a,b)=>a.position-b.position).forEach(mod => {
-                rows.push({ type: 'module', id: mod.id, title: mod.title, indent: 1 });
-                rows.push({ type: 'btn-unit', parentId: mod.id, indent: 2 }); // Add Unit Button
-
-                mod.units?.sort((a,b)=>a.position-b.position).forEach(unit => {
-                    rows.push({ type: 'unit', id: unit.id, title: unit.title, hours: unit.total_hours_required, indent: 2 });
-                });
-            });
-        });
-        rows.push({ type: 'btn-section', indent: 0 }); // Add Section Button
-
-        const modal = document.createElement('div');
-        modal.className = "fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-8 fade-in";
-        modal.innerHTML = `
-            <div class="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col">
-                <div class="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-xl">
-                    <h3 class="font-bold text-lg">Bulk Edit Content</h3>
-                    <button onclick="this.closest('.fixed').remove(); courseManager.loadSyllabus();" class="text-gray-500 hover:text-red-500"><i class="ph ph-x text-xl"></i></button>
-                </div>
-                <div class="flex-1 overflow-y-auto p-0">
-                    <table class="w-full text-sm text-left">
-                        <thead class="bg-gray-100 text-gray-600 sticky top-0 z-10 shadow-sm">
-                            <tr><th class="p-3 w-24 pl-6">Type</th><th class="p-3">Title</th><th class="p-3 w-32">Hours</th></tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100">
-                            ${rows.map(row => {
-                                if(row.type.startsWith('btn-')) {
-                                    const itemType = row.type.replace('btn-', '');
-                                    return `<tr class="bg-slate-50 hover:bg-slate-100"><td></td><td class="p-2"><button onclick="courseManager.bulkCreate('${itemType}', ${row.parentId || 0})" style="margin-left: ${row.indent * 1.5}rem" class="text-xs text-teal-600 hover:text-teal-800 font-bold flex items-center gap-1 px-2 py-1 rounded hover:bg-teal-50 border border-transparent hover:border-teal-200 transition"><i class="ph ph-plus-circle"></i> Add ${itemType.charAt(0).toUpperCase() + itemType.slice(1)}</button></td><td></td></tr>`;
-                                }
-                                const typeColor = row.type === 'section' ? 'bg-gray-200 text-gray-800' : (row.type === 'module' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800');
-                                const table = row.type + 's'; 
-                                return `<tr class="bg-white hover:bg-slate-50 transition border-b border-gray-100">
-                                    <td class="p-2 pl-4 align-middle"><span class="text-[10px] font-bold ${typeColor} px-2 py-1 rounded uppercase tracking-wider">${row.type}</span></td>
-                                    <td class="p-2"><div style="padding-left: ${row.indent * 1.5}rem" class="flex items-center"><input type="text" class="w-full bg-transparent border-b border-transparent hover:border-gray-300 focus:border-teal-500 focus:outline-none py-1 px-2 font-medium text-gray-700" value="${row.title}" onchange="courseManager.updateEntity('${table}', ${row.id}, 'title', this.value)"></div></td>
-                                    <td class="p-2">${row.type === 'unit' ? `<div class="flex items-center gap-1"><input type="number" step="0.5" class="border p-1 rounded w-20 text-center bg-white focus:ring-2 focus:ring-teal-500 outline-none" value="${row.hours || 0}" onchange="courseManager.updateEntity('units', ${row.id}, 'total_hours_required', this.value)"><span class="text-xs text-gray-400">h</span></div>` : ''}</td>
-                                </tr>`;
-                            }).join('')}
-                        </tbody>
-                    </table>
-                </div>
-                <div class="p-4 border-t bg-gray-50 flex justify-end">
-                    <button onclick="this.closest('.fixed').remove(); courseManager.loadSyllabus();" class="bg-teal-600 text-white px-6 py-2 rounded shadow hover:bg-teal-700 font-bold">Done & Refresh</button>
-                </div>
-            </div>`;
-        document.body.appendChild(modal);
-    },
-    // --- END PASTE ---
 
     // BULK CREATE HELPER
     bulkCreate: async (type, parentId) => {
@@ -549,17 +471,12 @@ const courseManager = {
         courseManager.openBulkEdit(); // Re-open to refresh
     },
     
-    
     updateEntity: async (table, id, field, value) => { await sb.from(table).update({ [field]: value }).eq('id', id); },
 
     openBulkEdit: async () => {
-        // 1. Fetch Hierarchy for ACTIVE COURSE ONLY
-        const { data: sections } = await sb.from('sections')
-            .select('id, title, position, modules(id, title, position, units(id, title, total_hours_required, position))')
-            .eq('course_id', state.activeCourse.id)
-            .order('position', { ascending: true });
+        const { data: sections } = await sb.from('sections').select('id, title, position, modules(id, title, position, units(id, title, total_hours_required, position))')
+            .eq('course_id', state.activeCourse.id).order('position', { ascending: true });
 
-        // 2. Flatten for display
         let rows = [];
         sections?.forEach(sec => {
             rows.push({ type: 'section', id: sec.id, title: sec.title, indent: 0 });
@@ -574,9 +491,8 @@ const courseManager = {
                 });
             });
         });
-        rows.push({ type: 'btn-section', indent: 0 }); // Button to add Section at bottom
+        rows.push({ type: 'btn-section', indent: 0 });
 
-        // 3. Render Modal
         const modal = document.createElement('div');
         modal.className = "fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-8 fade-in";
         modal.innerHTML = `
@@ -588,63 +504,22 @@ const courseManager = {
                 <div class="flex-1 overflow-y-auto p-0">
                     <table class="w-full text-sm text-left">
                         <thead class="bg-gray-100 text-gray-600 sticky top-0 z-10 shadow-sm">
-                            <tr>
-                                <th class="p-3 w-24 pl-6">Type</th>
-                                <th class="p-3">Title</th>
-                                <th class="p-3 w-32">Hours</th>
-                            </tr>
+                            <tr><th class="p-3 w-24 pl-6">Type</th><th class="p-3">Title</th><th class="p-3 w-32">Hours</th></tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
                             ${rows.map(row => {
-                                // RENDER BUTTON ROWS
                                 if(row.type.startsWith('btn-')) {
                                     const itemType = row.type.replace('btn-', '');
-                                    return `
-                                        <tr class="bg-slate-50 hover:bg-slate-100">
-                                            <td></td>
-                                            <td class="p-2">
-                                                <button onclick="courseManager.bulkCreate('${itemType}', ${row.parentId || 0})" 
-                                                    style="margin-left: ${row.indent * 1.5}rem"
-                                                    class="text-xs text-teal-600 hover:text-teal-800 font-bold flex items-center gap-1 px-2 py-1 rounded hover:bg-teal-50 border border-transparent hover:border-teal-200 transition">
-                                                    <i class="ph ph-plus-circle"></i> Add ${itemType.charAt(0).toUpperCase() + itemType.slice(1)}
-                                                </button>
-                                            </td>
-                                            <td></td>
-                                        </tr>`;
+                                    return `<tr class="bg-slate-50 hover:bg-slate-100"><td></td><td class="p-2"><button onclick="courseManager.bulkCreate('${itemType}', ${row.parentId || 0})" style="margin-left: ${row.indent * 1.5}rem" class="text-xs text-teal-600 hover:text-teal-800 font-bold flex items-center gap-1 px-2 py-1 rounded hover:bg-teal-50 border border-transparent hover:border-teal-200 transition"><i class="ph ph-plus-circle"></i> Add ${itemType.charAt(0).toUpperCase() + itemType.slice(1)}</button></td><td></td></tr>`;
                                 }
-
-                                // RENDER EDIT ROWS
                                 const isUnit = row.type === 'unit';
                                 const typeLabel = row.type.charAt(0).toUpperCase() + row.type.slice(1);
                                 const typeColor = row.type === 'section' ? 'bg-gray-200 text-gray-800' : (row.type === 'module' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800');
-                                const bgRow = row.type === 'section' ? 'bg-gray-100' : 'bg-white';
                                 const table = row.type + 's'; 
-
-                                return `
-                                <tr class="${bgRow} hover:bg-slate-50 transition border-b border-gray-100">
-                                    <td class="p-2 pl-4 align-middle">
-                                        <span class="text-[10px] font-bold ${typeColor} px-2 py-1 rounded uppercase tracking-wider">${typeLabel}</span>
-                                    </td>
-                                    <td class="p-2">
-                                        <div style="padding-left: ${row.indent * 1.5}rem" class="relative flex items-center">
-                                            ${row.indent > 0 ? `<div class="absolute left-0 top-1/2 -translate-y-1/2 w-[${row.indent * 1.5}rem] h-px bg-gray-300"></div>` : ''}
-                                            <input type="text" 
-                                                class="w-full bg-transparent border-b border-transparent hover:border-gray-300 focus:border-teal-500 focus:outline-none py-1 px-2 font-medium text-gray-700"
-                                                value="${row.title}"
-                                                onchange="courseManager.updateEntity('${table}', ${row.id}, 'title', this.value)">
-                                        </div>
-                                    </td>
-                                    <td class="p-2">
-                                        ${isUnit ? `
-                                            <div class="flex items-center gap-1">
-                                                <input type="number" step="0.5" 
-                                                    class="border p-1 rounded w-20 text-center bg-white focus:ring-2 focus:ring-teal-500 outline-none"
-                                                    value="${row.hours || 0}"
-                                                    onchange="courseManager.updateEntity('units', ${row.id}, 'total_hours_required', this.value)">
-                                                <span class="text-xs text-gray-400">h</span>
-                                            </div>
-                                        ` : ''}
-                                    </td>
+                                return `<tr class="${row.type === 'section' ? 'bg-gray-50' : 'bg-white'} hover:bg-slate-50 transition border-b border-gray-100">
+                                    <td class="p-2 pl-4 align-middle"><span class="text-[10px] font-bold ${typeColor} px-2 py-1 rounded uppercase tracking-wider">${typeLabel}</span></td>
+                                    <td class="p-2"><div style="padding-left: ${row.indent * 1.5}rem" class="relative flex items-center">${row.indent > 0 ? `<div class="absolute left-0 top-1/2 -translate-y-1/2 w-[${row.indent * 1.5}rem] h-px bg-gray-300"></div>` : ''}<input type="text" class="w-full bg-transparent border-b border-transparent hover:border-gray-300 focus:border-teal-500 focus:outline-none py-1 px-2 font-medium text-gray-700" value="${row.title}" onchange="courseManager.updateEntity('${table}', ${row.id}, 'title', this.value)"></div></td>
+                                    <td class="p-2">${isUnit ? `<div class="flex items-center gap-1"><input type="number" step="0.5" class="border p-1 rounded w-20 text-center bg-white focus:ring-2 focus:ring-teal-500 outline-none" value="${row.hours || 0}" onchange="courseManager.updateEntity('units', ${row.id}, 'total_hours_required', this.value)"><span class="text-xs text-gray-400">h</span></div>` : ''}</td>
                                 </tr>`;
                             }).join('')}
                         </tbody>
@@ -653,8 +528,7 @@ const courseManager = {
                 <div class="p-4 border-t bg-gray-50 flex justify-end">
                     <button onclick="this.closest('.fixed').remove(); courseManager.loadSyllabus();" class="bg-teal-600 text-white px-6 py-2 rounded shadow hover:bg-teal-700 font-bold">Done & Refresh</button>
                 </div>
-            </div>
-        `;
+            </div>`;
         document.body.appendChild(modal);
     },
 
@@ -665,8 +539,6 @@ const courseManager = {
         document.getElementById('current-module-title').innerHTML = `<span class="flex items-center gap-2 text-teal-900 font-bold"><i class="ph ph-folder-open"></i> ${module.title}</span>`;
         if(isAdmin()) {
             document.getElementById('btn-add-unit').classList.remove('hidden');
-            
-            // Insert Bulk Edit Button
             const headerContainer = document.getElementById('current-module-title').parentElement;
             if(!document.getElementById('btn-bulk-edit')) {
                 const bulkBtn = document.createElement('button');
@@ -674,7 +546,6 @@ const courseManager = {
                 bulkBtn.className = "text-xs bg-indigo-50 text-indigo-700 px-3 py-1 rounded border border-indigo-200 mr-2 hover:bg-indigo-100 font-bold flex items-center gap-1";
                 bulkBtn.innerHTML = `<i class="ph ph-list-dashes"></i> Bulk Edit`;
                 bulkBtn.onclick = () => courseManager.openBulkEdit();
-                
                 const addBtn = document.getElementById('btn-add-unit');
                 headerContainer.insertBefore(bulkBtn, addBtn);
             }
@@ -811,6 +682,45 @@ const courseManager = {
         roster?.forEach(m => html += `<tr><td class="p-4 font-medium text-gray-800">${m.profiles?.email || 'Unknown'}</td><td class="p-4"><span class="px-2 py-1 rounded text-xs font-bold ${m.course_role==='instructor'?'bg-purple-100 text-purple-700':'bg-blue-100 text-blue-700'}">${m.course_role.toUpperCase()}</span></td><td class="p-4"><span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">Active</span></td><td class="p-4 text-right">${isAdmin() && m.user_id !== state.user.id ? `<button onclick="courseManager.delUser('${m.user_id}')" class="text-red-400 hover:text-red-600"><i class="ph ph-trash text-lg"></i></button>` : ''}</td></tr>`);
         html += `</tbody></table></div>`; el.innerHTML = html;
     },
+    
+    // UPDATED ENROLL LOGIC (WITH ERROR HANDLING)
+    enroll: async () => {
+        const email = document.getElementById('email-in').value; 
+        const role = document.getElementById('role-in').value;
+        if(!email) return alert("Please enter an email address");
+
+        // Check if user exists
+        const { data: u, error: uError } = await sb.from('profiles').select('id').eq('email', email).maybeSingle();
+        
+        if (uError) {
+            console.error("Profile check error:", uError);
+            ui.toast("Error checking user: " + uError.message, "error");
+            return;
+        }
+
+        if(u) { 
+            // User exists, add to enrollments
+            const { error } = await sb.from('enrollments').insert([{course_id:state.activeCourse.id, user_id:u.id, course_role:role}]); 
+            if(error) {
+                console.error("Enrollment error:", error);
+                ui.toast("Failed to enroll: " + error.message, "error");
+            } else {
+                ui.toast("Enrolled successfully!", "success"); 
+            }
+        } else { 
+            // User doesn't exist, add to invitations
+            const { error } = await sb.from('invitations').insert([{course_id:state.activeCourse.id, email, role, invited_by:state.user.id}]); 
+            if(error) {
+                console.error("Invite error:", error);
+                ui.toast("Failed to invite: " + error.message, "error");
+            } else {
+                ui.toast("Invitation sent!", "success"); 
+            }
+        }
+        courseManager.loadTeam();
+    },
+    delInvite: async (id) => { if(confirm("Cancel?")) { await sb.from('invitations').delete().eq('id', id); courseManager.loadTeam(); }},
+    delUser: async (uid) => { if(confirm("Remove?")) { await sb.from('enrollments').delete().eq('course_id', state.activeCourse.id).eq('user_id', uid); courseManager.loadTeam(); }},
     
     // Reports Logic
     loadReports: async () => {
@@ -1101,11 +1011,7 @@ const schedulerManager = {
     schedules: [],
     
     init: async () => {
-        if(isAdmin()) {
-            const btn = document.getElementById('tab-btn-schedule');
-            if(btn) btn.classList.remove('hidden');
-        }
-        
+        if(isAdmin()) document.getElementById('tab-btn-schedule').classList.remove('hidden');
         await schedulerManager.fetchData();
         schedulerManager.renderSidebar();
         schedulerManager.renderCalendar();
@@ -1150,7 +1056,6 @@ const schedulerManager = {
                 slots.forEach(s => {
                     const label = s.type === 'unit' ? (s.units ? s.units.title : 'Unknown') : s.label;
                     const style = s.type === 'exam' ? 'exam' : (s.type === 'unit' ? '' : 'holiday');
-                    // IMPORTANT: Draggable attributes added here
                     html += `<div class="sched-item ${style}" title="${label}" draggable="true" ondragstart="schedulerManager.dragStartExisting(event, '${s.id}', '${label}', ${s.hours_assigned})">${s.hours_assigned}h: ${label}</div>`;
                 });
                 html += `</div>`;
@@ -1207,31 +1112,22 @@ const schedulerManager = {
         e.preventDefault();
         const type = e.dataTransfer.getData('type');
 
-        // CASE 1: Moving existing item
         if (type === 'move_schedule') {
             const id = e.dataTransfer.getData('id');
             const item = schedulerManager.schedules.find(s => s.id == id);
             if (!item) return;
-            
-            // Check capacity of target day
             const existing = schedulerManager.schedules.filter(s => s.date === dateStr);
             const used = existing.reduce((acc, s) => acc + s.hours_assigned, 0);
-            
-            if (used + item.hours_assigned > 6.5) {
-                if(!confirm(`Day will be over capacity (${used + item.hours_assigned}h). Move anyway?`)) return;
-            }
-
+            if (used + item.hours_assigned > 6.5) { if(!confirm(`Day over capacity. Move?`)) return; }
             await sb.from('schedules').update({ date: dateStr }).eq('id', id);
             await schedulerManager.init();
             return;
         }
 
-        // CASE 2: Dropping new item
         let hours = 0; let unitId = null; let label = '';
         const existing = schedulerManager.schedules.filter(s => s.date === dateStr);
         const used = existing.reduce((acc, s) => acc + s.hours_assigned, 0);
         const available = Math.max(0, 6.5 - used);
-
         if(available <= 0) return alert("Day is full!");
 
         if(type === 'unit') {
@@ -1242,7 +1138,7 @@ const schedulerManager = {
         } else {
             label = prompt(`Label for ${type}:`, type);
             if(!label) return;
-            hours = 6.5;
+            hours = 6.5; 
             if(type !== 'holiday') { const h = prompt("Hours?", available); hours = parseFloat(h); }
         }
 
@@ -1259,9 +1155,8 @@ const schedulerManager = {
         else {
             slots.forEach(s => {
                 const title = s.type === 'unit' ? (s.units?.title || 'Unknown Unit') : s.label;
-                const icon = s.type === 'unit' ? 'fa-book' : 'fa-coffee';
                 const badgeColor = s.type === 'unit' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700';
-                content += `<div class="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-lg hover:bg-slate-100 transition group"><div class="flex items-start gap-3"><div class="mt-1 text-gray-400"><i class="fa-solid ${icon}"></i></div><div><div class="font-bold text-sm text-gray-800">${title}</div><span class="text-xs ${badgeColor} px-2 py-0.5 rounded font-medium">${s.hours_assigned} hours</span></div></div><button onclick="schedulerManager.deleteSlot(${s.id})" class="text-gray-300 hover:text-red-500 p-2 transition"><i class="fa-solid fa-trash"></i></button></div>`;
+                content += `<div class="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-lg hover:bg-slate-100 transition group"><div class="flex items-start gap-3"><div><div class="font-bold text-sm text-gray-800">${title}</div><span class="text-xs ${badgeColor} px-2 py-0.5 rounded font-medium">${s.hours_assigned} hours</span></div></div><button onclick="schedulerManager.deleteSlot(${s.id})" class="text-gray-300 hover:text-red-500 p-2 transition"><i class="fa-solid fa-trash"></i></button></div>`;
             });
         }
         content += `</div></div>`; modal.innerHTML = content; document.body.appendChild(modal);
