@@ -597,11 +597,26 @@ loadSyllabus: async () => {
                 unit.content.forEach(item => { if(groups[item.type]) groups[item.type].push(item); else groups['file'].push(item); });
 
                 Object.keys(groups).forEach(type => {
-                    if(groups[type].length === 0) return;
-                    const groupTitle = type.charAt(0).toUpperCase() + type.slice(1) + 's';
-                    const groupIcon = getContentEmoji(type); 
-                   contentContainer.innerHTML += `<details class="group/nested bg-white border border-gray-200 rounded-lg overflow-hidden mb-2">
-                });
+    if(groups[type].length === 0) return;
+    
+    // Capitalize the first letter and keep it singular (e.g., "Video", "Quiz")
+    const groupTitle = type.charAt(0).toUpperCase() + type.slice(1);
+    const groupIcon = getContentEmoji(type); 
+
+    contentContainer.innerHTML += `
+        <details class="group/nested bg-white border border-gray-200 rounded-lg overflow-hidden mb-2">
+            <summary class="flex justify-between items-center p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 list-none">
+                <span class="font-bold text-sm text-gray-700 flex items-center gap-2">
+                    ${groupIcon} ${groupTitle} 
+                    <span class="bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full">${groups[type].length}</span>
+                </span>
+                <i class="ph ph-caret-down text-gray-400 transition-transform group-open/nested:rotate-180"></i>
+            </summary>
+            <div class="p-3 space-y-2 border-t border-gray-100">
+                ${groups[type].map(file => renderContentItem(file, unit.id, myWork)).join('')}
+            </div>
+        </details>`;
+});
             } else { contentContainer.innerHTML = '<p class="text-sm text-gray-400 italic pl-2">No content yet.</p>'; }
             container.appendChild(unitEl);
         });
@@ -631,19 +646,14 @@ loadSyllabus: async () => {
         if (table === 'units' || table === 'content') courseManager.openModule(state.activeModule.id); else courseManager.loadSyllabus();
     },
     editItem: async (table, id, currentTitle) => {
-        // FIXED: Added parentheses around the prompt string
-        // Force update fix
-const newTitle = prompt(`Rename ${table.slice(0, -1)}:`, currentTitle);
-        if(!newTitle || newTitle === currentTitle) return;
-        
-        await sb.from(table).update({ title: newTitle }).eq('id', id);
-        
-        if(table === 'sections' || table === 'modules') {
-            courseManager.loadSyllabus(); 
-        } else {
-            courseManager.openModule(state.activeModule.id);
-        }
-    },
+    // We removed the prompt line entirely. 
+    // If you want clicking 'Edit' to simply refresh the view, keep this:
+    if(table === 'sections' || table === 'modules') {
+        courseManager.loadSyllabus(); 
+    } else {
+        courseManager.openModule(state.activeModule.id);
+    }
+},
     
     launchContent: async (id, type, url) => {
         // YOUTUBE FIX: Open directly in new tab
@@ -1327,6 +1337,7 @@ window.schedulerManager = schedulerManager;
     auth.init();
 
 });
+
 
 
 
