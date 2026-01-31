@@ -1161,13 +1161,22 @@ const schedulerManager = {
                     if(s.type === 'exam') bgStyle = 'background: #faf5ff; border-left: 3px solid #9333ea; color: #6b21a8;';
                     if(s.type === 'holiday') bgStyle = 'background: #fef2f2; border-left: 3px solid #ef4444; color: #991b1b;';
 
-                    const item = document.createElement('div');
-                    item.className = "sched-item text-[10px] px-1 py-0.5 rounded cursor-grab shadow-sm truncate";
-                    item.style = bgStyle;
-                    item.draggable = true;
-                    item.innerText = `${s.hours_assigned}h: ${label}`;
-                    item.ondragstart = (e) => schedulerManager.dragStartExisting(e, s.id);
-                    listDiv.appendChild(item);
+                    // ... inside slots.forEach ...
+const item = document.createElement('div');
+item.className = "sched-item text-[10px] px-1 py-0.5 rounded cursor-grab shadow-sm truncate";
+item.style = bgStyle;
+item.draggable = true;
+item.innerText = `${s.hours_assigned}h: ${label}`;
+item.ondragstart = (e) => schedulerManager.dragStartExisting(e, s.id);
+
+// NEW: Click handler for the UNIT itself
+item.onclick = (e) => {
+    e.stopPropagation(); // Don't open the Day Menu
+    schedulerManager.editSlot(s); // Open Unit Menu
+};
+
+listDiv.appendChild(item);
+
                 });
 
                 // ENABLE SORTABLE REORDERING ON DAY
@@ -1192,40 +1201,57 @@ const schedulerManager = {
 
     renderSidebar: async () => { 
         const list = document.getElementById('scheduler-sidebar'); if(!list) return; list.innerHTML = '';
+        
         state.structure.forEach(section => {
             section.modules?.forEach(module => {
                 if(!module.units || module.units.length === 0) return;
+                
                 const group = document.createElement('details'); 
                 group.className = "group/sidebar mb-2 bg-white border border-gray-200 rounded-lg overflow-hidden"; 
                 group.open = true; 
                 
-                // Color Code Sidebar too
                 const modColor = module.color || '#f1f5f9';
                 
                 group.innerHTML = `<summary style="background:${modColor}" class="flex justify-between items-center p-2 cursor-pointer text-xs font-bold text-gray-700 select-none list-none"><span class="truncate pr-2">${module.title}</span><i class="ph ph-caret-down transition-transform group-open/sidebar:rotate-180 text-gray-400"></i></summary><div class="p-2 space-y-2 bg-slate-50 border-t border-gray-100"></div>`;
+                
                 const container = group.querySelector('div');
+                
                 module.units.forEach(u => {
+                    // Calculate Status
                     const scheduled = schedulerManager.schedules.filter(s => s.unit_id === u.id).reduce((acc, s) => acc + s.hours_assigned, 0);
                     const total = u.total_hours_required || 0;
-                    const remaining = Math.max(0, total - scheduled);
-                    if(remaining <= 0) return; // Hide completed units
-
+                    const pct = total > 0 ? Math.min(100, Math.round((scheduled / total) * 100)) : 0;
+                    const isDone = pct >= 100;
+                    
                     const div = document.createElement('div');
-                    div.className = "p-2 bg-white border border-gray-200 rounded shadow-sm cursor-grab hover:border-teal-400 transition";
+                    div.className = `p-2 bg-white border ${isDone ? 'border-green-200' : 'border-gray-200'} rounded shadow-sm cursor-grab hover:border-teal-400 transition relative overflow-hidden`;
+                    div.draggable = !isDone; // Disable drag if full? Or allow to over-schedule? Let's allow.
                     div.draggable = true;
+                    
                     div.ondragstart = (e) => { 
                         e.dataTransfer.setData('type', 'unit'); 
                         e.dataTransfer.setData('id', u.id); 
                         e.dataTransfer.setData('title', u.title); 
                     };
-                    div.innerHTML = `<div class="flex justify-between font-bold text-xs"><span>${u.title}</span><span class="text-orange-500">${remaining}h</span></div>`;
+
+                    // Progress Bar Background
+                    div.innerHTML = `
+                        <div class="absolute bottom-0 left-0 h-1 bg-gray-100 w-full"><div class="h-full ${isDone ? 'bg-green-500' : 'bg-blue-500'}" style="width: ${pct}%"></div></div>
+                        <div class="flex justify-between items-start mb-1 relative z-10">
+                            <div class="text-xs font-bold ${isDone ? 'text-green-700' : 'text-gray-700'} truncate w-3/4" title="${u.title}">${isDone ? '✓ ' : ''}${u.title}</div>
+                            <span class="text-[9px] font-bold ${isDone ? 'text-green-600' : 'text-blue-600'}">${pct}%</span>
+                        </div>
+                        <div class="flex justify-between items-center text-[10px] text-gray-500 relative z-10">
+                            <span>${scheduled} / ${total} hrs</span>
+                        </div>`;
+                        
                     container.appendChild(div);
                 });
                 if(container.children.length > 0) list.appendChild(group);
             });
         });
         
-        // Misc Items
+        // Misc Items (Exam/Holiday)
         const miscDiv = document.createElement('div');
         miscDiv.innerHTML = `<div class="mt-4 pt-4 border-t"><div class="grid grid-cols-2 gap-2">
             <div class="p-2 bg-purple-50 border border-purple-200 rounded text-center text-xs font-bold text-purple-700 cursor-grab" draggable="true" ondragstart="event.dataTransfer.setData('type','exam')">Exam</div>
@@ -1293,14 +1319,77 @@ const schedulerManager = {
         await schedulerManager.init();
     },
     
-    // reuse existing editDay and deleteSlot...
-    editDay: (dateStr) => { /* ... keep existing code ... */ },
+    
+    editDay: (dateStr) => {
+        const modal = document.createElement('div');
+        modal.className = "fixed inset-0 bg-black/20 z-[60] flex items-center justify-center p-4 fade-in";
+        modal.onclick = (e) => { if(e.target === modal) modal.remove(); };
+
+        const prettyDate = new Date(dateStr).toDateString();
+
+        modal.innerHTML = `
+            <div class="bg-white rounded-lg shadow-2xl w-full max-w-xs overflow-hidden p-4 space-y-4 border border-gray-200">
+                <div class="text-center">
+                    <h3 class="font-bold text-lg text-teal-700">${prettyDate}</h3>
+                    <p class="text-xs text-gray-500">Manage Entire Day</p>
+                </div>
+
+                <div class="space-y-2">
+                    <button onclick="schedulerManager.shiftDates(s => s.date >= '${dateStr}', -1); this.closest('.fixed').remove();" class="w-full flex items-center justify-between p-3 bg-orange-50 hover:bg-orange-100 text-orange-700 rounded border border-orange-200 text-sm font-bold transition">
+                        <i class="ph ph-arrow-left"></i> Shift Everything Back 1 Day
+                    </button>
+                    <button onclick="schedulerManager.shiftDates(s => s.date >= '${dateStr}', 1); this.closest('.fixed').remove();" class="w-full flex items-center justify-between p-3 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 text-sm font-bold transition">
+                        Shift Everything Fwd 1 Day <i class="ph ph-arrow-right"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    },
     deleteSlot: async (id) => { 
         if(!confirm("Remove?")) return; 
         await sb.from('schedules').delete().eq('id', id); 
         schedulerManager.init(); 
     }
 };
+editSlot: (slot) => {
+        const modal = document.createElement('div');
+        modal.className = "fixed inset-0 bg-black/20 z-[60] flex items-center justify-center p-4 fade-in";
+        modal.onclick = (e) => { if(e.target === modal) modal.remove(); };
+        
+        const label = slot.type === 'unit' ? (slot.units?.title || 'Unit') : slot.label;
+        const dateStr = slot.date;
+
+        modal.innerHTML = `
+            <div class="bg-white rounded-lg shadow-2xl w-full max-w-sm overflow-hidden p-4 space-y-3 border border-gray-200">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h3 class="font-bold text-gray-800 text-sm">${label}</h3>
+                        <p class="text-xs text-gray-500">${new Date(dateStr).toDateString()}</p>
+                    </div>
+                    <button onclick="schedulerManager.deleteSlot(${slot.id}); this.closest('.fixed').remove();" class="text-red-500 hover:bg-red-50 p-2 rounded transition" title="Delete Entry">
+                        <i class="ph ph-trash text-lg"></i>
+                    </button>
+                </div>
+                
+                <div class="h-px bg-gray-100 my-2"></div>
+                <div class="text-xs font-bold text-gray-400 uppercase tracking-wider">Schedule Shift</div>
+                
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="schedulerManager.shiftDates(s => s.date >= '${dateStr}', -1); this.closest('.fixed').remove();" class="flex flex-col items-center justify-center gap-1 p-2 bg-slate-50 hover:bg-slate-100 rounded border border-slate-200 text-slate-600 text-xs font-medium transition">
+                        <i class="ph ph-caret-left text-lg"></i>
+                        Shift All Back
+                    </button>
+                    <button onclick="schedulerManager.shiftDates(s => s.date >= '${dateStr}', 1); this.closest('.fixed').remove();" class="flex flex-col items-center justify-center gap-1 p-2 bg-slate-50 hover:bg-slate-100 rounded border border-slate-200 text-slate-600 text-xs font-medium transition">
+                        <i class="ph ph-caret-right text-lg"></i>
+                        Shift All Forward
+                    </button>
+                </div>
+                <p class="text-[10px] text-gray-400 text-center mt-1">Shifts all items from this day onwards.</p>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    },
 
 document.addEventListener('DOMContentLoaded', () => {
     const loginForm = document.getElementById('auth-form');
@@ -1337,6 +1426,7 @@ window.schedulerManager = schedulerManager;
     auth.init();
 
 });
+
 
 
 
