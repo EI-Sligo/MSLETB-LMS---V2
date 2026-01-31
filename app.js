@@ -632,7 +632,8 @@ loadSyllabus: async () => {
     },
     editItem: async (table, id, currentTitle) => {
         // FIXED: Added parentheses around the prompt string
-        const newTitle = prompt(`Rename ${table.slice(0, -1)}:`, currentTitle);
+        // Force update fix
+const newTitle = prompt(`Rename ${table.slice(0, -1)}:`, currentTitle);
         if(!newTitle || newTitle === currentTitle) return;
         
         await sb.from(table).update({ title: newTitle }).eq('id', id);
@@ -1326,6 +1327,7 @@ window.schedulerManager = schedulerManager;
     auth.init();
 
 });
+
 
 
 
