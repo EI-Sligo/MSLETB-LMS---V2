@@ -1204,6 +1204,22 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // ==========================================
+// 11. EXPOSE TO WINDOW (REQUIRED FOR HTML ONCLICK)
+// ==========================================
+window.auth = auth;
+window.authUI = authUI;
+window.app = app;
+window.ui = ui;
+window.dashboard = dashboard;
+window.courseManager = courseManager;
+window.entityModal = entityModal;
+window.contentModal = contentModal;
+window.assignmentManager = assignmentManager;
+window.quizManager = quizManager;
+window.schedulerManager = schedulerManager;
     document.getElementById('btn-add-section')?.addEventListener('click', () => entityModal.open('section'));
     auth.init();
+
 });
