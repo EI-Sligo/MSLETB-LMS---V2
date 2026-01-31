@@ -595,7 +595,7 @@ const courseManager = {
                     if(groups[type].length === 0) return;
                     const groupTitle = type.charAt(0).toUpperCase() + type.slice(1) + 's';
                     const groupIcon = getContentEmoji(type); 
-                    contentContainer.innerHTML += `<details class="group/nested bg-white border border-gray-200 rounded-lg overflow-hidden mb-2" open><summary class="flex justify-between items-center p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 list-none"><span class="font-bold text-sm text-gray-700 flex items-center gap-2">${groupIcon} ${groupTitle} <span class="bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full">${groups[type].length}</span></span><i class="ph ph-caret-down text-gray-400 transition-transform group-open/nested:rotate-180"></i></summary><div class="p-3 space-y-2 border-t border-gray-100">${groups[type].map(file => renderContentItem(file, unit.id, myWork)).join('')}</div></details>`;
+                   contentContainer.innerHTML += `<details class="group/nested bg-white border border-gray-200 rounded-lg overflow-hidden mb-2">
                 });
             } else { contentContainer.innerHTML = '<p class="text-sm text-gray-400 italic pl-2">No content yet.</p>'; }
             container.appendChild(unitEl);
@@ -1223,3 +1223,4 @@ window.schedulerManager = schedulerManager;
     auth.init();
 
 });
+
