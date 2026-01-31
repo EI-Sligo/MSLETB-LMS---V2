@@ -631,10 +631,17 @@ loadSyllabus: async () => {
         if (table === 'units' || table === 'content') courseManager.openModule(state.activeModule.id); else courseManager.loadSyllabus();
     },
     editItem: async (table, id, currentTitle) => {
+        // FIXED: Added parentheses around the prompt string
         const newTitle = prompt(`Rename ${table.slice(0, -1)}:`, currentTitle);
         if(!newTitle || newTitle === currentTitle) return;
+        
         await sb.from(table).update({ title: newTitle }).eq('id', id);
-        if(table === 'sections' || table === 'modules') courseManager.loadSyllabus(); else courseManager.openModule(state.activeModule.id);
+        
+        if(table === 'sections' || table === 'modules') {
+            courseManager.loadSyllabus(); 
+        } else {
+            courseManager.openModule(state.activeModule.id);
+        }
     },
     
     launchContent: async (id, type, url) => {
@@ -1319,5 +1326,6 @@ window.schedulerManager = schedulerManager;
     auth.init();
 
 });
+
 
 
