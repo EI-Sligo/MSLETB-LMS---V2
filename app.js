@@ -936,18 +936,23 @@ const contentModal = {
         document.getElementById('quiz-wrapper').classList.toggle('hidden', !isQuiz);
         document.getElementById('source-wrapper').classList.toggle('hidden', isQuiz);
     },
-    save: async (unitId, itemId = null) => {
+    ssave: async (unitId, itemId = null) => {
         const title = document.getElementById('input-content-title').value;
         const type = document.getElementById('input-content-type').value;
         let fileUrl = document.getElementById('input-content-url').value; 
         let jsonData = {};
 
-        if(type === 'quiz') {
+        // HARDCODE FIX: Force URL if Simulator
+        if(type === 'simulator') {
+            fileUrl = '/simulator/index.html'; 
+        } 
+        else if(type === 'quiz') {
             jsonData = { questions: quizManager.questions };
-        } else {
-            // Simplified file handling: real app would upload here if file input is used
+        } 
+        else {
+            // Standard file handling for other types
             const fileInput = document.getElementById('input-content-file');
-            if(fileInput.files.length > 0) {
+            if(fileInput && fileInput.files.length > 0) {
                  const file = fileInput.files[0];
                  const path = `files/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9]/g,'_')}`;
                  await sb.storage.from('course_content').upload(path, file);
@@ -1379,6 +1384,7 @@ window.schedulerManager = schedulerManager;
     auth.init();
 
 });
+
 
 
 
