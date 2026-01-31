@@ -936,13 +936,13 @@ const contentModal = {
         document.getElementById('quiz-wrapper').classList.toggle('hidden', !isQuiz);
         document.getElementById('source-wrapper').classList.toggle('hidden', isQuiz);
     },
-    ssave: async (unitId, itemId = null) => {
+    save: async (unitId, itemId = null) => {
         const title = document.getElementById('input-content-title').value;
         const type = document.getElementById('input-content-type').value;
         let fileUrl = document.getElementById('input-content-url').value; 
         let jsonData = {};
 
-        // HARDCODE FIX: Force URL if Simulator
+        // HARDCODE SIMULATOR LINK
         if(type === 'simulator') {
             fileUrl = '/simulator/index.html'; 
         } 
@@ -950,7 +950,6 @@ const contentModal = {
             jsonData = { questions: quizManager.questions };
         } 
         else {
-            // Standard file handling for other types
             const fileInput = document.getElementById('input-content-file');
             if(fileInput && fileInput.files.length > 0) {
                  const file = fileInput.files[0];
@@ -1041,6 +1040,7 @@ const quizManager = {
 // ==========================================
 // 10. SCHEDULER MANAGER (Updated)
 // ==========================================
+// REPLACE ENTIRE schedulerManager OBJECT
 const schedulerManager = {
     currentDate: new Date(),
     schedules: [],
@@ -1107,64 +1107,68 @@ const schedulerManager = {
             const cell = document.createElement('div');
             cell.className = `cal-cell ${isBlocked ? 'cal-blocked' : ''}`;
             
-            // STRICT CLICK HANDLING: Only trigger Day Menu if clicking background or number
+            // DAY CLICK: Only if target is the cell itself
             cell.onclick = (e) => { 
-                if(e.target === cell || e.target.classList.contains('cal-date-badge')) {
+                if(e.target === cell || e.target.classList.contains('cal-date-badge') || e.target.classList.contains('cal-blocked-text')) {
                     schedulerManager.editDay(dateStr); 
                 }
             };
             cell.ondrop = (e) => schedulerManager.handleDrop(e, dateStr);
             cell.ondragover = (e) => e.preventDefault();
             
-            cell.innerHTML = `<div class="cal-date-badge">${d}</div>`;
+            // Build Cell Content
+            let contentHtml = `<div class="cal-date-badge">${d}</div>`;
+            if(isBlocked) contentHtml += `<div class="text-[10px] text-red-300 mt-4 text-center font-bold cal-blocked-text">HOLIDAY</div>`;
+            cell.innerHTML = contentHtml;
+
+            // Render Items Container
+            const listDiv = document.createElement('div');
+            listDiv.className = "mt-4 space-y-1 min-h-[50px] relative z-20 pointer-events-none"; // Container lets clicks through
             
-            if(isBlocked) {
-                cell.innerHTML += `<div class="text-[10px] text-red-300 mt-4 text-center font-bold">HOLIDAY</div>`;
-            } else {
-                const listDiv = document.createElement('div');
-                listDiv.className = "mt-4 space-y-1 min-h-[50px] relative z-10"; 
-                
-                slots.forEach(s => {
-                    const label = s.type === 'unit' ? (s.units ? s.units.title : 'Unknown') : s.label;
-                    let bgStyle = 'background: #eff6ff; border-left: 3px solid #3b82f6;'; 
-                    if(s.type === 'unit' && s.units?.module_id) {
-                        state.structure.forEach(sec => sec.modules?.forEach(mod => {
-                            if(mod.id == s.units.module_id && mod.color) {
-                                bgStyle = `background: ${mod.color}; border-left: 3px solid #94a3b8; color: #334155;`;
-                            }
-                        }));
-                    }
-                    if(s.type === 'exam') bgStyle = 'background: #faf5ff; border-left: 3px solid #9333ea; color: #6b21a8;';
-                    if(s.type === 'holiday') bgStyle = 'background: #fef2f2; border-left: 3px solid #ef4444; color: #991b1b;';
+            slots.forEach(s => {
+                const label = s.type === 'unit' ? (s.units ? s.units.title : 'Unknown') : s.label;
+                let bgStyle = 'background: #eff6ff; border-left: 3px solid #3b82f6;'; 
+                if(s.type === 'unit' && s.units?.module_id) {
+                    state.structure.forEach(sec => sec.modules?.forEach(mod => {
+                        if(mod.id == s.units.module_id && mod.color) {
+                            bgStyle = `background: ${mod.color}; border-left: 3px solid #94a3b8; color: #334155;`;
+                        }
+                    }));
+                }
+                if(s.type === 'exam') bgStyle = 'background: #faf5ff; border-left: 3px solid #9333ea; color: #6b21a8;';
+                if(s.type === 'holiday') bgStyle = 'background: #fef2f2; border-left: 3px solid #ef4444; color: #991b1b;';
 
-                    const item = document.createElement('div');
-                    item.className = "sched-item text-[10px] px-1 py-0.5 rounded cursor-pointer shadow-sm truncate hover:opacity-80 relative";
-                    item.style = bgStyle;
-                    item.draggable = true;
-                    item.innerText = `${s.hours_assigned}h: ${label}`;
-                    item.ondragstart = (e) => schedulerManager.dragStartExisting(e, s.id);
-                    
-                    // UNIT CLICK
-                    item.onclick = (e) => {
-                        e.stopPropagation(); // STOP event from bubbling to Day
-                        schedulerManager.editSlot(s);
-                    };
-
-                    listDiv.appendChild(item);
-                });
+                const item = document.createElement('div');
+                item.className = "sched-item text-[10px] px-1 py-0.5 rounded cursor-pointer shadow-sm truncate hover:opacity-80 relative pointer-events-auto"; // Re-enable pointer events for items
+                item.style = bgStyle;
+                item.draggable = true;
+                item.innerText = `${s.hours_assigned}h: ${label}`;
                 
-                cell.appendChild(listDiv);
-                if(hoursUsed > 0) cell.innerHTML += `<div class="absolute bottom-1 right-2 text-[9px] font-bold ${hoursUsed > 6.5 ? 'text-red-600' : 'text-gray-400'}">${hoursUsed}/6.5h</div>`;
-            }
+                item.ondragstart = (e) => {
+                    e.stopPropagation();
+                    schedulerManager.dragStartExisting(e, s.id);
+                };
+                
+                // UNIT CLICK - Forced Stop Propagation
+                item.onclick = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation(); 
+                    schedulerManager.editSlot(s);
+                };
+
+                listDiv.appendChild(item);
+            });
+            
+            cell.appendChild(listDiv);
+            if(hoursUsed > 0) cell.innerHTML += `<div class="absolute bottom-1 right-2 text-[9px] font-bold ${hoursUsed > 6.5 ? 'text-red-600' : 'text-gray-400'}">${hoursUsed}/6.5h</div>`;
+            
             body.appendChild(cell);
         }
         grid.appendChild(body); container.appendChild(grid);
     },
 
     editSlot: (slot) => {
-        // Remove any existing modals first
         const existing = document.getElementById('menu-modal'); if(existing) existing.remove();
-        
         const modal = document.createElement('div');
         modal.id = 'menu-modal';
         modal.className = "fixed inset-0 bg-black/20 z-[60] flex items-center justify-center p-4 fade-in";
@@ -1178,45 +1182,28 @@ const schedulerManager = {
             <div class="bg-white rounded-lg shadow-2xl w-full max-w-sm overflow-hidden p-4 space-y-3 border border-gray-200">
                 <div class="flex justify-between items-start">
                     <h3 class="font-bold text-gray-800 text-sm w-3/4">${label}</h3>
-                    <button id="btn-delete-slot" class="text-white bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-xs font-bold shadow-sm transition">
-                        Delete
-                    </button>
+                    <button id="btn-del-slot" class="text-white bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-xs font-bold shadow-sm transition">Delete</button>
                 </div>
-                
                 ${modId ? `
                 <div class="h-px bg-gray-100 my-2"></div>
-                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Shift Module (From this day on)</div>
+                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Shift Module (From this day)</div>
                 <div class="grid grid-cols-2 gap-2">
-                    <button id="btn-shift-back" class="p-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 text-xs font-bold transition text-center">
-                        <i class="ph ph-caret-left"></i> Back 1 Day
-                    </button>
-                    <button id="btn-shift-fwd" class="p-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 text-xs font-bold transition text-center">
-                        Forward 1 Day <i class="ph ph-caret-right"></i>
-                    </button>
+                    <button id="btn-shift-m-back" class="p-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 text-xs font-bold transition text-center"><i class="ph ph-caret-left"></i> Back 1 Day</button>
+                    <button id="btn-shift-m-fwd" class="p-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 text-xs font-bold transition text-center">Forward 1 Day <i class="ph ph-caret-right"></i></button>
                 </div>` : ''}
             </div>`;
         document.body.appendChild(modal);
-
-        // Attach listeners safely
-        document.getElementById('btn-delete-slot').onclick = () => {
-            schedulerManager.deleteSlot(slot.id);
-            modal.remove();
-        };
+        
+        // Bind Events manually to ensure they fire
+        document.getElementById('btn-del-slot').onclick = () => { schedulerManager.deleteSlot(slot.id); modal.remove(); };
         if(modId) {
-            document.getElementById('btn-shift-back').onclick = () => {
-                schedulerManager.shiftDates(s => s.units?.module_id == modId && s.date >= dateStr, -1);
-                modal.remove();
-            };
-            document.getElementById('btn-shift-fwd').onclick = () => {
-                schedulerManager.shiftDates(s => s.units?.module_id == modId && s.date >= dateStr, 1);
-                modal.remove();
-            };
+            document.getElementById('btn-shift-m-back').onclick = () => { schedulerManager.shiftDates(s => s.units?.module_id == modId && s.date >= dateStr, -1); modal.remove(); };
+            document.getElementById('btn-shift-m-fwd').onclick = () => { schedulerManager.shiftDates(s => s.units?.module_id == modId && s.date >= dateStr, 1); modal.remove(); };
         }
     },
 
     editDay: (dateStr) => {
         const existing = document.getElementById('menu-modal'); if(existing) existing.remove();
-        
         const modal = document.createElement('div');
         modal.id = 'menu-modal';
         modal.className = "fixed inset-0 bg-black/20 z-[60] flex items-center justify-center p-4 fade-in";
@@ -1224,29 +1211,16 @@ const schedulerManager = {
 
         modal.innerHTML = `
             <div class="bg-white rounded-lg shadow-2xl w-full max-w-xs overflow-hidden p-4 space-y-4 border border-gray-200">
-                <div class="text-center border-b pb-2">
-                    <h3 class="font-bold text-lg text-teal-700">${new Date(dateStr).toDateString()}</h3>
-                    <p class="text-xs text-gray-500">Manage Entire Day</p>
-                </div>
+                <div class="text-center border-b pb-2"><h3 class="font-bold text-lg text-teal-700">${new Date(dateStr).toDateString()}</h3><p class="text-xs text-gray-500">Manage Entire Day</p></div>
                 <div class="space-y-2">
-                    <button id="btn-day-back" class="w-full flex items-center justify-between p-3 bg-orange-50 hover:bg-orange-100 text-orange-700 rounded border border-orange-200 text-xs font-bold transition">
-                        <i class="ph ph-caret-left"></i> Shift All Back 1 Day
-                    </button>
-                    <button id="btn-day-fwd" class="w-full flex items-center justify-between p-3 bg-orange-50 hover:bg-orange-100 text-orange-700 rounded border border-orange-200 text-xs font-bold transition">
-                        Shift All Fwd 1 Day <i class="ph ph-caret-right"></i>
-                    </button>
+                    <button id="btn-day-back" class="w-full flex items-center justify-between p-3 bg-orange-50 hover:bg-orange-100 text-orange-700 rounded border border-orange-200 text-xs font-bold transition"><i class="ph ph-caret-left"></i> Shift All Back 1 Day</button>
+                    <button id="btn-day-fwd" class="w-full flex items-center justify-between p-3 bg-orange-50 hover:bg-orange-100 text-orange-700 rounded border border-orange-200 text-xs font-bold transition">Shift All Fwd 1 Day <i class="ph ph-caret-right"></i></button>
                 </div>
             </div>`;
         document.body.appendChild(modal);
-
-        document.getElementById('btn-day-back').onclick = () => {
-            schedulerManager.shiftDates(s => s.date >= dateStr, -1);
-            modal.remove();
-        };
-        document.getElementById('btn-day-fwd').onclick = () => {
-            schedulerManager.shiftDates(s => s.date >= dateStr, 1);
-            modal.remove();
-        };
+        
+        document.getElementById('btn-day-back').onclick = () => { schedulerManager.shiftDates(s => s.date >= dateStr, -1); modal.remove(); };
+        document.getElementById('btn-day-fwd').onclick = () => { schedulerManager.shiftDates(s => s.date >= dateStr, 1); modal.remove(); };
     },
 
     renderSidebar: async () => { 
@@ -1269,18 +1243,17 @@ const schedulerManager = {
                     const isDone = pct >= 100;
                     
                     const div = document.createElement('div');
-                    // Ensure Borders are visible
                     div.className = `p-2 bg-white border-l-4 ${isDone ? 'border-green-500' : 'border-gray-200'} rounded shadow-sm cursor-grab hover:border-teal-400 transition relative overflow-hidden`;
                     div.draggable = true;
                     div.ondragstart = (e) => { e.dataTransfer.setData('type', 'unit'); e.dataTransfer.setData('id', u.id); };
 
                     div.innerHTML = `
-                        <div class="absolute bottom-0 left-0 h-1 bg-gray-100 w-full"><div class="h-full ${isDone ? 'bg-green-500' : 'bg-blue-500'}" style="width: ${pct}%"></div></div>
                         <div class="flex justify-between items-start mb-1 relative z-10">
-                            <div class="text-xs font-bold ${isDone ? 'text-green-700' : 'text-gray-700'} truncate w-3/4" title="${u.title}">${isDone ? '✓ ' : ''}${u.title}</div>
+                            <div class="text-xs font-bold ${isDone ? 'text-green-700' : 'text-gray-700'} truncate w-3/4">${isDone ? '✓ ' : ''}${u.title}</div>
                             <span class="text-[9px] font-bold ${isDone ? 'text-green-600' : 'text-blue-600'}">${pct}%</span>
                         </div>
-                        <div class="text-[9px] text-gray-400 relative z-10 text-right">${scheduled}/${total} hrs</div>`;
+                        <div class="w-full bg-gray-100 rounded-full h-1.5 mt-1 overflow-hidden"><div class="h-full ${isDone ? 'bg-green-500' : 'bg-blue-500'} transition-all" style="width: ${pct}%"></div></div>
+                        <div class="text-[9px] text-gray-400 mt-1 text-right">${scheduled}/${total} hrs</div>`;
                     container.appendChild(div);
                 });
                 if(container.children.length > 0) list.appendChild(group);
@@ -1328,47 +1301,9 @@ const schedulerManager = {
         await schedulerManager.init();
     },
     
-    deleteSlot: async (id) => { if(confirm("Remove?")) { await sb.from('schedules').delete().eq('id', id); schedulerManager.init(); }}
+    deleteSlot: async (id) => { if(confirm("Remove?")) { await sb.from('schedules').delete().eq('id', id); document.getElementById('menu-modal')?.remove(); schedulerManager.init(); }}
 };
-editSlot: (slot) => {
-        const modal = document.createElement('div');
-        modal.className = "fixed inset-0 bg-black/20 z-[60] flex items-center justify-center p-4 fade-in";
-        modal.onclick = (e) => { if(e.target === modal) modal.remove(); };
-        
-        const label = slot.type === 'unit' ? (slot.units?.title || 'Unit') : slot.label;
-        const dateStr = slot.date;
-
-        modal.innerHTML = `
-            <div class="bg-white rounded-lg shadow-2xl w-full max-w-sm overflow-hidden p-4 space-y-3 border border-gray-200">
-                <div class="flex justify-between items-start">
-                    <div>
-                        <h3 class="font-bold text-gray-800 text-sm">${label}</h3>
-                        <p class="text-xs text-gray-500">${new Date(dateStr).toDateString()}</p>
-                    </div>
-                    <button onclick="schedulerManager.deleteSlot(${slot.id}); this.closest('.fixed').remove();" class="text-red-500 hover:bg-red-50 p-2 rounded transition" title="Delete Entry">
-                        <i class="ph ph-trash text-lg"></i>
-                    </button>
-                </div>
-                
-                <div class="h-px bg-gray-100 my-2"></div>
-                <div class="text-xs font-bold text-gray-400 uppercase tracking-wider">Schedule Shift</div>
-                
-                <div class="grid grid-cols-2 gap-2">
-                    <button onclick="schedulerManager.shiftDates(s => s.date >= '${dateStr}', -1); this.closest('.fixed').remove();" class="flex flex-col items-center justify-center gap-1 p-2 bg-slate-50 hover:bg-slate-100 rounded border border-slate-200 text-slate-600 text-xs font-medium transition">
-                        <i class="ph ph-caret-left text-lg"></i>
-                        Shift All Back
-                    </button>
-                    <button onclick="schedulerManager.shiftDates(s => s.date >= '${dateStr}', 1); this.closest('.fixed').remove();" class="flex flex-col items-center justify-center gap-1 p-2 bg-slate-50 hover:bg-slate-100 rounded border border-slate-200 text-slate-600 text-xs font-medium transition">
-                        <i class="ph ph-caret-right text-lg"></i>
-                        Shift All Forward
-                    </button>
-                </div>
-                <p class="text-[10px] text-gray-400 text-center mt-1">Shifts all items from this day onwards.</p>
-            </div>
-        `;
-        document.body.appendChild(modal);
-    },
-
+    // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
     const loginForm = document.getElementById('auth-form');
     if(loginForm) {
@@ -1404,6 +1339,7 @@ window.schedulerManager = schedulerManager;
     auth.init();
 
 });
+
 
 
 
