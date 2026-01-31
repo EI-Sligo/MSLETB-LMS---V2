@@ -380,68 +380,73 @@ const dashboard = {
 // 6. CONTENT & SYLLABUS MANAGER
 // ==========================================
 const courseManager = {
-    loadSyllabus: async () => {
-        const list = document.getElementById('syllabus-list');
-        list.innerHTML = '<div class="p-4 text-center"><i class="ph ph-spinner animate-spin text-teal-600"></i></div>';
+    // REPLACE your existing courseManager.loadSyllabus with this:
+loadSyllabus: async () => {
+    const list = document.getElementById('syllabus-list');
+    list.innerHTML = '<div class="p-4 text-center"><i class="ph ph-spinner animate-spin text-teal-600"></i></div>';
+    
+    // Assign Colors to Modules for consistency
+    const palette = ['#dbeafe', '#d1fae5', '#fef9c3', '#fee2e2', '#f3e8ff', '#ffedd5'];
+    
+    let query = sb.from('sections').select('*, modules(*, units(*, content(*)))') 
+        .eq('course_id', state.activeCourse.id).order('position', { ascending: true });
+    if(!isAdmin()) query = query.eq('is_visible', true);
+
+    const { data: sections } = await query;
+    list.innerHTML = '';
+    state.structure = sections || []; 
+
+    if (!sections || sections.length === 0) { list.innerHTML = '<div class="text-center text-gray-400 p-4 text-sm">No sections yet.</div>'; return; }
+
+    sections.forEach(section => {
+        let modules = (section.modules || []).sort((a,b) => a.position - b.position);
+        if(!isAdmin()) modules = modules.filter(m => m.is_visible);
+
+        // Safe strings for HTML attributes
+        const safeSecTitle = section.title.replace(/'/g, "\\'"); 
+
+        const sectionEl = document.createElement('div');
+        sectionEl.className = "border-b border-gray-100 last:border-0";
         
-        let query = sb.from('sections').select('*, modules(*, units(*, content(*)))') 
-            .eq('course_id', state.activeCourse.id).order('position', { ascending: true });
-        if(!isAdmin()) query = query.eq('is_visible', true);
-
-        const { data: sections } = await query;
-        list.innerHTML = '';
-        state.structure = sections || []; 
-
-        if (!sections || sections.length === 0) { list.innerHTML = '<div class="text-center text-gray-400 p-4 text-sm">No sections yet.</div>'; return; }
-
-        sections.forEach(section => {
-            let modules = (section.modules || []).sort((a,b) => a.position - b.position);
-            if(!isAdmin()) modules = modules.filter(m => m.is_visible);
-
-            const sectionEl = document.createElement('div');
-            sectionEl.className = "border-b border-gray-100 last:border-0";
-            
-            sectionEl.innerHTML = `
-                <div class="flex justify-between items-center p-3 hover:bg-slate-50 group cursor-pointer" onclick="ui.toggleAccordion('${section.id}')">
-                    <div class="flex items-center gap-2 font-bold text-xs text-gray-600 uppercase tracking-wide flex-1">
-                        <i id="acc-icon-${section.id}" class="ph ph-caret-down transition-transform duration-200"></i>
-                        <span class="truncate">${section.title}</span>
-                    </div>
-                    <div class="flex items-center gap-2" onclick="event.stopPropagation()">
-                        ${isAdmin() ? `
-                            <label class="relative inline-flex items-center cursor-pointer group/toggle"><input type="checkbox" class="sr-only peer" ${section.is_visible ? 'checked' : ''} onchange="courseManager.toggleVisibility('sections', ${section.id}, this.checked)"><div class="w-7 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:bg-teal-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all"></div></label>
-                            <div class="hidden group-hover:flex gap-1 pl-2 border-l border-gray-200 ml-2">
-                                <button onclick="courseManager.moveItem('sections', ${section.id}, 'up')" class="text-gray-400 hover:text-teal-600 p-1"><i class="ph ph-arrow-up"></i></button>
-                                <button onclick="courseManager.moveItem('sections', ${section.id}, 'down')" class="text-gray-400 hover:text-teal-600 p-1"><i class="ph ph-arrow-down"></i></button>
-                                <button onclick="entityModal.open('module', null, '', '', '', ${section.id})" class="text-teal-600 hover:bg-teal-50 p-1 rounded" title="Add Module"><i class="ph ph-plus"></i></button>
-                                <button onclick="entityModal.open('section', ${section.id}, '${section.title}')" class="text-blue-500 hover:bg-blue-50 p-1 rounded"><i class="ph ph-pencil-simple"></i></button>
-                                <button onclick="courseManager.deleteItem('sections', ${section.id})" class="text-red-400 hover:bg-red-50 p-1 rounded"><i class="ph ph-trash"></i></button>
-                            </div>
-                        ` : ''}
-                    </div>
+        sectionEl.innerHTML = `
+            <div class="flex justify-between items-center p-3 hover:bg-slate-50 group cursor-pointer" onclick="ui.toggleAccordion('${section.id}')">
+                <div class="flex items-center gap-2 font-bold text-xs text-gray-600 uppercase tracking-wide flex-1">
+                    <i id="acc-icon-${section.id}" class="ph ph-caret-down transition-transform duration-200"></i>
+                    <span class="truncate">${section.title}</span>
                 </div>
-                <div id="acc-content-${section.id}" class="pl-4 pb-2 space-y-1 hidden">
-                    ${modules.map(mod => `
-                        <div class="p-2 rounded cursor-pointer text-sm text-gray-600 hover:bg-teal-50 hover:text-teal-700 flex justify-between items-center group transition" onclick="courseManager.openModule('${mod.id}')">
-                            <div class="flex items-center gap-2 flex-1"><i class="ph ph-folder-notch text-gray-400"></i><span class="truncate">${mod.title}</span></div>
-                            <div class="flex items-center gap-3" onclick="event.stopPropagation()">
-                                ${isAdmin() ? `
-                                    <label class="relative inline-flex items-center cursor-pointer"><input type="checkbox" class="sr-only peer" ${mod.is_visible ? 'checked' : ''} onchange="courseManager.toggleVisibility('modules', ${mod.id}, this.checked)"><div class="w-6 h-3.5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:bg-teal-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-2.5 after:w-2.5 after:transition-all"></div></label>
-                                    <div class="hidden group-hover:flex gap-1 pl-2 border-l border-gray-200">
-                                        <button onclick="courseManager.moveItem('modules', ${mod.id}, 'up')" class="text-gray-400 hover:text-teal-600"><i class="ph ph-arrow-up"></i></button>
-                                        <button onclick="courseManager.moveItem('modules', ${mod.id}, 'down')" class="text-gray-400 hover:text-teal-600"><i class="ph ph-arrow-down"></i></button>
-                                        <button onclick="entityModal.open('module', ${mod.id}, '${mod.title}')" class="text-blue-400 hover:text-blue-600"><i class="ph ph-pencil-simple"></i></button>
-                                        <button onclick="courseManager.deleteItem('modules', ${mod.id})" class="text-red-400 hover:text-red-600"><i class="ph ph-trash"></i></button>
-                                    </div>
-                                ` : ''}
-                            </div>
+                <div class="flex items-center gap-2" onclick="event.stopPropagation()">
+                    ${isAdmin() ? `
+                        <button onclick="courseManager.bulkCreate('module', ${section.id})" class="text-teal-600 hover:bg-teal-50 p-1 rounded" title="Add Module"><i class="ph ph-plus"></i></button>
+                        <button onclick="entityModal.open('section', ${section.id}, '${safeSecTitle}')" class="text-blue-500 hover:bg-blue-50 p-1 rounded"><i class="ph ph-pencil-simple"></i></button>
+                        <button onclick="courseManager.deleteItem('sections', ${section.id})" class="text-red-400 hover:bg-red-50 p-1 rounded"><i class="ph ph-trash"></i></button>
+                    ` : ''}
+                </div>
+            </div>
+            <div id="acc-content-${section.id}" class="pl-4 pb-2 space-y-1 hidden">
+                ${modules.map((mod, idx) => {
+                    const safeModTitle = mod.title.replace(/'/g, "\\'");
+                    const modColor = palette[idx % palette.length]; // Assign color based on index
+                    mod.color = modColor; // Save for scheduler
+                    return `
+                    <div class="p-2 rounded cursor-pointer text-sm text-gray-600 hover:bg-teal-50 hover:text-teal-700 flex justify-between items-center group transition" onclick="courseManager.openModule('${mod.id}')">
+                        <div class="flex items-center gap-2 flex-1">
+                            <div class="w-2 h-2 rounded-full" style="background:${modColor}"></div>
+                            <i class="ph ph-folder-notch text-gray-400"></i>
+                            <span class="truncate">${mod.title}</span>
                         </div>
-                    `).join('')}
-                </div>
-            `;
-            list.appendChild(sectionEl);
-        });
-    },
+                        <div class="flex items-center gap-3" onclick="event.stopPropagation()">
+                            ${isAdmin() ? `
+                                <button onclick="entityModal.open('module', ${mod.id}, '${safeModTitle}')" class="text-blue-400 hover:text-blue-600"><i class="ph ph-pencil-simple"></i></button>
+                                <button onclick="courseManager.deleteItem('modules', ${mod.id})" class="text-red-400 hover:text-red-600"><i class="ph ph-trash"></i></button>
+                            ` : ''}
+                        </div>
+                    </div>`;
+                }).join('')}
+            </div>
+        `;
+        list.appendChild(sectionEl);
+    });
+},
 
     toggleVisibility: async (table, id, isVisible) => {
         try { await sb.from(table).update({ is_visible: isVisible }).eq('id', id); ui.toast("Visibility updated", "success"); }
@@ -1018,7 +1023,10 @@ const schedulerManager = {
     },
 
     fetchData: async () => {
-        const { data } = await sb.from('schedules').select('*, units:unit_id(title, total_hours_required)').eq('course_id', state.activeCourse.id);
+        // Fetch schedules with linked Unit and Module info to get colors/names
+        const { data } = await sb.from('schedules')
+            .select('*, units:unit_id(title, total_hours_required, module_id)')
+            .eq('course_id', state.activeCourse.id);
         schedulerManager.schedules = data || [];
     },
 
@@ -1027,11 +1035,64 @@ const schedulerManager = {
         schedulerManager.renderCalendar();
     },
 
+    // --- HELPER: Shift Dates Function ---
+    shiftDates: async (filterFn, daysToShift) => {
+        const toUpdate = schedulerManager.schedules.filter(filterFn);
+        if(toUpdate.length === 0) return ui.toast("No items to shift.", "info");
+        
+        if(!confirm(`Shift ${toUpdate.length} items by ${daysToShift} days?`)) return;
+
+        for (const item of toUpdate) {
+            let d = new Date(item.date);
+            let daysAdded = 0;
+            // Add days, skipping weekends
+            while (daysAdded < Math.abs(daysToShift)) {
+                d.setDate(d.getDate() + (daysToShift > 0 ? 1 : -1));
+                if (d.getDay() !== 0 && d.getDay() !== 6) daysAdded++;
+            }
+            await sb.from('schedules').update({ date: d.toISOString().split('T')[0] }).eq('id', item.id);
+        }
+        ui.toast("Schedule Updated", "success");
+        await schedulerManager.init();
+    },
+
+    // --- TOOL: Shift Everything from a Specific Day ---
+    toolShiftDay: () => {
+        const startStr = prompt("Shift everything FROM this date (YYYY-MM-DD):");
+        if(!startStr) return;
+        const days = parseInt(prompt("How many days forward?", "1"));
+        if(!days) return;
+
+        schedulerManager.shiftDates((s) => s.date >= startStr, days);
+    },
+
+    // --- TOOL: Shift a Specific Module ---
+    toolShiftModule: () => {
+        // List modules
+        let msg = "Enter Module ID to shift:\n";
+        state.structure.forEach(s => s.modules?.forEach(m => msg += `${m.id}: ${m.title}\n`));
+        const modId = prompt(msg);
+        if(!modId) return;
+        
+        const days = parseInt(prompt("How many days forward?", "1"));
+        if(!days) return;
+
+        schedulerManager.shiftDates((s) => s.units?.module_id == modId, days);
+    },
+
     renderCalendar: () => {
         const container = document.getElementById('calCont'); if(!container) return; container.innerHTML = '';
         const year = schedulerManager.currentDate.getFullYear();
         const month = schedulerManager.currentDate.getMonth();
-        document.getElementById('cal-month-title').innerHTML = `${schedulerManager.currentDate.toLocaleDateString('default', { month: 'long', year: 'numeric' })} ${isAdmin() ? `<button onclick="schedulerManager.shiftSchedule()" class="text-xs bg-orange-100 text-orange-700 px-3 py-1 rounded border border-orange-200 ml-4 hover:bg-orange-200 font-normal"><i class="fa-solid fa-clock-rotate-left"></i> Shift Dates</button>` : ''}`;
+        
+        // Updated Header with New Tools
+        document.getElementById('cal-month-title').innerHTML = `
+            ${schedulerManager.currentDate.toLocaleDateString('default', { month: 'long', year: 'numeric' })} 
+            ${isAdmin() ? `
+            <div class="ml-4 flex gap-2">
+                <button onclick="schedulerManager.toolShiftDay()" class="text-[10px] bg-orange-100 text-orange-700 px-2 py-1 rounded border border-orange-200 hover:bg-orange-200"><i class="fa-solid fa-calendar-day"></i> Shift From Date</button>
+                <button onclick="schedulerManager.toolShiftModule()" class="text-[10px] bg-blue-100 text-blue-700 px-2 py-1 rounded border border-blue-200 hover:bg-blue-200"><i class="fa-solid fa-layer-group"></i> Shift Module</button>
+            </div>` : ''}`;
 
         const grid = document.createElement('div'); grid.className = 'bg-white rounded-lg overflow-hidden border border-gray-200';
         grid.innerHTML = `<div class="cal-header"><div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div></div>`;
@@ -1049,142 +1110,177 @@ const schedulerManager = {
             const slots = schedulerManager.schedules.filter(s => s.date === dateStr);
             const hoursUsed = slots.reduce((acc, s) => acc + s.hours_assigned, 0);
             
-            let html = `<div class="cal-cell ${isBlocked ? 'cal-blocked' : ''}" ondrop="schedulerManager.handleDrop(event, '${dateStr}')" ondragover="event.preventDefault()" onclick="schedulerManager.editDay('${dateStr}')"><div class="cal-date-badge">${d}</div>`;
-            if(isBlocked) html += `<div class="text-[10px] text-red-300 mt-4 text-center font-bold">HOLIDAY / W.E</div>`;
-            else {
-                html += `<div class="mt-4 space-y-1">`;
+            // Build Cell
+            const cell = document.createElement('div');
+            cell.className = `cal-cell ${isBlocked ? 'cal-blocked' : ''}`;
+            cell.dataset.date = dateStr;
+            cell.innerHTML = `<div class="cal-date-badge">${d}</div>`;
+            
+            if(isBlocked) {
+                cell.innerHTML += `<div class="text-[10px] text-red-300 mt-4 text-center font-bold">HOLIDAY</div>`;
+            } else {
+                // Drop Zone Logic
+                cell.ondrop = (e) => schedulerManager.handleDrop(e, dateStr);
+                cell.ondragover = (e) => e.preventDefault();
+                cell.onclick = (e) => { if(e.target === cell) schedulerManager.editDay(dateStr); };
+
+                const listDiv = document.createElement('div');
+                listDiv.className = "mt-4 space-y-1 min-h-[50px]";
+                
                 slots.forEach(s => {
                     const label = s.type === 'unit' ? (s.units ? s.units.title : 'Unknown') : s.label;
-                    const style = s.type === 'exam' ? 'exam' : (s.type === 'unit' ? '' : 'holiday');
-                    html += `<div class="sched-item ${style}" title="${label}" draggable="true" ondragstart="schedulerManager.dragStartExisting(event, '${s.id}', '${label}', ${s.hours_assigned})">${s.hours_assigned}h: ${label}</div>`;
+                    
+                    // COLOR CODING LOOKUP
+                    let bgStyle = 'background: #eff6ff; border-left: 3px solid #3b82f6;'; // Default Blue
+                    if(s.type === 'unit' && s.units?.module_id) {
+                        // Find color in structure
+                        state.structure.forEach(sec => sec.modules?.forEach(mod => {
+                            if(mod.id == s.units.module_id && mod.color) {
+                                bgStyle = `background: ${mod.color}; border-left: 3px solid #94a3b8; color: #334155;`;
+                            }
+                        }));
+                    }
+                    if(s.type === 'exam') bgStyle = 'background: #faf5ff; border-left: 3px solid #9333ea; color: #6b21a8;';
+                    if(s.type === 'holiday') bgStyle = 'background: #fef2f2; border-left: 3px solid #ef4444; color: #991b1b;';
+
+                    const item = document.createElement('div');
+                    item.className = "sched-item text-[10px] px-1 py-0.5 rounded cursor-grab shadow-sm truncate";
+                    item.style = bgStyle;
+                    item.draggable = true;
+                    item.innerText = `${s.hours_assigned}h: ${label}`;
+                    item.ondragstart = (e) => schedulerManager.dragStartExisting(e, s.id);
+                    listDiv.appendChild(item);
                 });
-                html += `</div>`;
-                if(hoursUsed > 0) html += `<div class="absolute bottom-1 right-2 text-[9px] font-bold ${hoursUsed > 6.5 ? 'text-red-600' : 'text-gray-400'}">${hoursUsed}/6.5h</div>`;
+
+                // ENABLE SORTABLE REORDERING ON DAY
+                if(typeof Sortable !== 'undefined') {
+                    new Sortable(listDiv, {
+                        group: 'shared', // Allow moving between days
+                        animation: 150,
+                        onEnd: (evt) => {
+                            // If moved to a new day via sortable, handle logic here if needed
+                            // Note: handleDrop usually handles cross-day logic better
+                        }
+                    });
+                }
+                
+                cell.appendChild(listDiv);
+                if(hoursUsed > 0) cell.innerHTML += `<div class="absolute bottom-1 right-2 text-[9px] font-bold ${hoursUsed > 6.5 ? 'text-red-600' : 'text-gray-400'}">${hoursUsed}/6.5h</div>`;
             }
-            html += `</div>`; body.innerHTML += html;
+            body.appendChild(cell);
         }
         grid.appendChild(body); container.appendChild(grid);
     },
 
     renderSidebar: async () => { 
         const list = document.getElementById('scheduler-sidebar'); if(!list) return; list.innerHTML = '';
-        let hasUnits = false;
         state.structure.forEach(section => {
             section.modules?.forEach(module => {
                 if(!module.units || module.units.length === 0) return;
-                hasUnits = true;
-                const group = document.createElement('details'); group.className = "group/sidebar mb-2 bg-white border border-gray-200 rounded-lg overflow-hidden"; group.open = true; 
-                group.innerHTML = `<summary class="flex justify-between items-center p-2 bg-gray-50 cursor-pointer hover:bg-gray-100 text-xs font-bold text-gray-700 select-none list-none"><span class="truncate pr-2">${module.title}</span><i class="ph ph-caret-down transition-transform group-open/sidebar:rotate-180 text-gray-400"></i></summary><div class="p-2 space-y-2 bg-slate-50 border-t border-gray-100"></div>`;
+                const group = document.createElement('details'); 
+                group.className = "group/sidebar mb-2 bg-white border border-gray-200 rounded-lg overflow-hidden"; 
+                group.open = true; 
+                
+                // Color Code Sidebar too
+                const modColor = module.color || '#f1f5f9';
+                
+                group.innerHTML = `<summary style="background:${modColor}" class="flex justify-between items-center p-2 cursor-pointer text-xs font-bold text-gray-700 select-none list-none"><span class="truncate pr-2">${module.title}</span><i class="ph ph-caret-down transition-transform group-open/sidebar:rotate-180 text-gray-400"></i></summary><div class="p-2 space-y-2 bg-slate-50 border-t border-gray-100"></div>`;
                 const container = group.querySelector('div');
                 module.units.forEach(u => {
                     const scheduled = schedulerManager.schedules.filter(s => s.unit_id === u.id).reduce((acc, s) => acc + s.hours_assigned, 0);
                     const total = u.total_hours_required || 0;
                     const remaining = Math.max(0, total - scheduled);
-                    const pct = total > 0 ? Math.round((scheduled / total) * 100) : 0;
+                    if(remaining <= 0) return; // Hide completed units
+
                     const div = document.createElement('div');
-                    div.className = "p-2 bg-white border border-gray-200 rounded shadow-sm cursor-grab active:cursor-grabbing hover:border-teal-400 transition group/item";
+                    div.className = "p-2 bg-white border border-gray-200 rounded shadow-sm cursor-grab hover:border-teal-400 transition";
                     div.draggable = true;
-                    div.ondragstart = (e) => { e.dataTransfer.setData('type', 'unit'); e.dataTransfer.setData('id', u.id); e.dataTransfer.setData('title', u.title); };
-                    div.innerHTML = `<div class="flex justify-between items-start mb-1"><div class="text-xs font-bold text-gray-700 truncate w-3/4" title="${u.title}">${u.title}</div><span class="text-[9px] font-bold ${pct >= 100 ? 'text-green-600' : 'text-blue-600'}">${pct}%</span></div><div class="flex justify-between items-center text-[10px] text-gray-500 mb-1"><span>${scheduled} / ${total} hrs</span><span class="${remaining === 0 ? 'text-green-600 font-bold' : 'text-orange-500'}">${remaining}h left</span></div><div class="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden"><div class="h-full ${pct >= 100 ? 'bg-green-500' : 'bg-blue-500'} transition-all" style="width: ${Math.min(100, pct)}%"></div></div>`;
+                    div.ondragstart = (e) => { 
+                        e.dataTransfer.setData('type', 'unit'); 
+                        e.dataTransfer.setData('id', u.id); 
+                        e.dataTransfer.setData('title', u.title); 
+                    };
+                    div.innerHTML = `<div class="flex justify-between font-bold text-xs"><span>${u.title}</span><span class="text-orange-500">${remaining}h</span></div>`;
                     container.appendChild(div);
                 });
-                list.appendChild(group);
+                if(container.children.length > 0) list.appendChild(group);
             });
         });
-        if(!hasUnits) list.innerHTML = '<div class="text-xs text-gray-400 text-center p-4">No units found.</div>';
-        const miscGroup = document.createElement('div'); miscGroup.className = "mt-4 pt-4 border-t border-gray-200"; miscGroup.innerHTML = '<div class="text-xs font-bold text-gray-400 uppercase mb-2 px-1">Quick Add</div><div class="grid grid-cols-2 gap-2" id="misc-grid"></div>';
-        const miscContainer = miscGroup.querySelector('#misc-grid');
-        ['Exam', 'Study', 'Holiday'].forEach(type => {
-            const div = document.createElement('div'); div.className = "p-2 bg-purple-50 border border-purple-200 rounded text-center text-xs font-bold text-purple-700 cursor-grab hover:bg-purple-100"; div.innerText = type; div.draggable = true;
-            div.ondragstart = (e) => { e.dataTransfer.setData('type', type.toLowerCase()); };
-            miscContainer.appendChild(div);
-        });
-        list.appendChild(miscGroup);
+        
+        // Misc Items
+        const miscDiv = document.createElement('div');
+        miscDiv.innerHTML = `<div class="mt-4 pt-4 border-t"><div class="grid grid-cols-2 gap-2">
+            <div class="p-2 bg-purple-50 border border-purple-200 rounded text-center text-xs font-bold text-purple-700 cursor-grab" draggable="true" ondragstart="event.dataTransfer.setData('type','exam')">Exam</div>
+            <div class="p-2 bg-red-50 border border-red-200 rounded text-center text-xs font-bold text-red-700 cursor-grab" draggable="true" ondragstart="event.dataTransfer.setData('type','holiday')">Holiday</div>
+        </div></div>`;
+        list.appendChild(miscDiv);
     },
 
-    dragStartExisting: (e, id, title, hours) => {
+    dragStartExisting: (e, id) => {
         e.dataTransfer.setData('type', 'move_schedule');
         e.dataTransfer.setData('id', id);
         e.stopPropagation(); 
     },
 
+    // --- UPDATED DROP HANDLER WITH "RIPPLE INSERT" ---
     handleDrop: async (e, dateStr) => {
         e.preventDefault();
         const type = e.dataTransfer.getData('type');
 
+        // Check capacity
+        const existing = schedulerManager.schedules.filter(s => s.date === dateStr);
+        const used = existing.reduce((acc, s) => acc + s.hours_assigned, 0);
+        let available = Math.max(0, 6.5 - used);
+
         if (type === 'move_schedule') {
             const id = e.dataTransfer.getData('id');
-            const item = schedulerManager.schedules.find(s => s.id == id);
-            if (!item) return;
-            const existing = schedulerManager.schedules.filter(s => s.date === dateStr);
-            const used = existing.reduce((acc, s) => acc + s.hours_assigned, 0);
-            if (used + item.hours_assigned > 6.5) { if(!confirm(`Day over capacity. Move?`)) return; }
             await sb.from('schedules').update({ date: dateStr }).eq('id', id);
             await schedulerManager.init();
             return;
         }
 
-        let hours = 0; let unitId = null; let label = '';
-        const existing = schedulerManager.schedules.filter(s => s.date === dateStr);
-        const used = existing.reduce((acc, s) => acc + s.hours_assigned, 0);
-        const available = Math.max(0, 6.5 - used);
-        if(available <= 0) return alert("Day is full!");
+        // Logic for New Drops (Unit / Exam)
+        let hours = 0;
+        let unitId = null; 
+        let label = '';
 
         if(type === 'unit') {
             unitId = e.dataTransfer.getData('id');
-            const ask = prompt(`Assign hours (Max ${available}):`, available);
-            hours = parseFloat(ask);
-            if(!hours || isNaN(hours)) return;
+            const ask = prompt(`Assign hours (Max ${available}) or type 'SHIFT' to insert and push others forward:`, available);
+            
+            // --- SMART SHIFT LOGIC ---
+            if(ask && ask.toUpperCase() === 'SHIFT') {
+                schedulerManager.shiftDates((s) => s.date >= dateStr, 1);
+                // After shifting, the slot is empty, so we take the full 6.5 or default
+                hours = 6.5; 
+            } else {
+                hours = parseFloat(ask);
+                if(!hours || isNaN(hours)) return;
+                if(hours > available) return alert("Not enough space. Use 'SHIFT' to push items.");
+            }
         } else {
-            label = prompt(`Label for ${type}:`, type);
+            label = prompt("Label:", type);
             if(!label) return;
-            hours = 6.5; 
-            if(type !== 'holiday') { const h = prompt("Hours?", available); hours = parseFloat(h); }
+            hours = 6.5;
         }
 
-        await sb.from('schedules').insert([{ course_id: state.activeCourse.id, unit_id: unitId, date: dateStr, hours_assigned: hours, type: type, label: label }]);
+        await sb.from('schedules').insert([{ 
+            course_id: state.activeCourse.id, 
+            unit_id: unitId, 
+            date: dateStr, 
+            hours_assigned: hours, 
+            type: type, 
+            label: label 
+        }]);
         await schedulerManager.init();
     },
     
-    editDay: (dateStr) => {
-        const slots = schedulerManager.schedules.filter(s => s.date === dateStr);
-        const existing = document.getElementById('day-editor-modal'); if(existing) existing.remove();
-        const modal = document.createElement('div'); modal.id = 'day-editor-modal'; modal.className = "fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 fade-in"; modal.onclick = (e) => { if(e.target === modal) modal.remove(); };
-        let content = `<div class="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden transform transition-all scale-100"><div class="bg-teal-600 p-4 text-white flex justify-between items-center"><h3 class="font-bold flex items-center gap-2"><i class="fa-regular fa-calendar"></i> ${new Date(dateStr).toDateString()}</h3><button onclick="document.getElementById('day-editor-modal').remove()" class="hover:text-red-200 transition"><i class="fa-solid fa-times text-lg"></i></button></div><div class="p-4 space-y-2 max-h-[60vh] overflow-y-auto">`;
-        if(slots.length === 0) content += `<p class="text-gray-400 text-sm text-center italic py-4">No events scheduled.</p>`;
-        else {
-            slots.forEach(s => {
-                const title = s.type === 'unit' ? (s.units?.title || 'Unknown Unit') : s.label;
-                const badgeColor = s.type === 'unit' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700';
-                content += `<div class="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-lg hover:bg-slate-100 transition group"><div class="flex items-start gap-3"><div><div class="font-bold text-sm text-gray-800">${title}</div><span class="text-xs ${badgeColor} px-2 py-0.5 rounded font-medium">${s.hours_assigned} hours</span></div></div><button onclick="schedulerManager.deleteSlot(${s.id})" class="text-gray-300 hover:text-red-500 p-2 transition"><i class="fa-solid fa-trash"></i></button></div>`;
-            });
-        }
-        content += `</div></div>`; modal.innerHTML = content; document.body.appendChild(modal);
-    },
-
-    deleteSlot: async (id) => {
-        if(!confirm("Remove?")) return;
-        await sb.from('schedules').delete().eq('id', id);
-        document.getElementById('day-editor-modal').remove();
-        schedulerManager.init();
-    },
-
-    shiftSchedule: async () => {
-        if (schedulerManager.schedules.length === 0) return alert("No schedule.");
-        const dates = schedulerManager.schedules.map(s => new Date(s.date));
-        const currentStart = new Date(Math.min.apply(null, dates));
-        const newStartStr = prompt("New start date (YYYY-MM-DD):", currentStart.toISOString().split('T')[0]);
-        if (!newStartStr) return;
-        const newStart = new Date(newStartStr);
-        if (isNaN(newStart.getTime())) return alert("Invalid date.");
-        const diffDays = Math.ceil((newStart - currentStart) / (1000 * 60 * 60 * 24)); 
-        if (diffDays === 0) return alert("Date is the same.");
-        if (!confirm(`Shift all items by ${diffDays} days?`)) return;
-        for (const slot of schedulerManager.schedules) {
-            const newDate = new Date(slot.date); newDate.setDate(newDate.getDate() + diffDays);
-            await sb.from('schedules').update({ date: newDate.toISOString().split('T')[0] }).eq('id', slot.id);
-        }
-        ui.toast("Shifted!", "success"); await schedulerManager.init();
+    // reuse existing editDay and deleteSlot...
+    editDay: (dateStr) => { /* ... keep existing code ... */ },
+    deleteSlot: async (id) => { 
+        if(!confirm("Remove?")) return; 
+        await sb.from('schedules').delete().eq('id', id); 
+        schedulerManager.init(); 
     }
 };
 
@@ -1223,4 +1319,5 @@ window.schedulerManager = schedulerManager;
     auth.init();
 
 });
+
 
