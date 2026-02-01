@@ -1031,10 +1031,7 @@ const quizManager = {
 };
 
 // ==========================================
-// 10. SCHEDULER MANAGER (FIXED)
-// ==========================================
-// ==========================================
-// 10. SCHEDULER MANAGER (FIXED)
+// 10. SCHEDULER MANAGER (FINAL FIXED VERSION)
 // ==========================================
 const schedulerManager = {
     currentDate: new Date(),
@@ -1066,6 +1063,7 @@ const schedulerManager = {
         for (const item of toUpdate) {
             let d = new Date(item.date);
             let daysAdded = 0;
+            // Shift dates skipping weekends
             while (daysAdded < Math.abs(daysToShift)) {
                 d.setDate(d.getDate() + (daysToShift > 0 ? 1 : -1));
                 if (d.getDay() !== 0 && d.getDay() !== 6) daysAdded++;
@@ -1076,7 +1074,7 @@ const schedulerManager = {
         await schedulerManager.init();
     },
 
-    // --- TOOLS MENU: Reuse / Clear ---
+    // --- TOOLS MENU ---
     openToolsMenu: () => {
         const existing = document.getElementById('menu-modal'); if(existing) existing.remove();
         const modal = document.createElement('div');
@@ -1181,7 +1179,7 @@ const schedulerManager = {
             const cell = document.createElement('div');
             cell.className = `h-32 border-r border-b border-gray-100 relative p-1 transition hover:bg-gray-50 ${isBlocked ? 'bg-red-50/30' : 'bg-white'}`;
             
-            // DROP ONLY - NO CLICK ON DAY
+            // Drop Only
             cell.ondrop = (e) => schedulerManager.handleDrop(e, dateStr);
             cell.ondragover = (e) => e.preventDefault();
             
@@ -1217,7 +1215,7 @@ const schedulerManager = {
                         schedulerManager.dragStartExisting(e, s.id); 
                     };
                     
-                    // --- CLICK HANDLER (RESTORED) ---
+                    // --- CLICK HANDLER (FIXED) ---
                     item.onclick = (e) => {
                         e.preventDefault();
                         e.stopPropagation(); 
@@ -1238,7 +1236,7 @@ const schedulerManager = {
         container.appendChild(wrapper);
     },
 
-    // --- UNIT MENU POPUP ---
+    // --- UNIT MENU POPUP (THIS WAS MISSING BEFORE) ---
     editSlot: (slot) => {
         const existing = document.getElementById('menu-modal'); if(existing) existing.remove();
         const modal = document.createElement('div');
@@ -1284,10 +1282,7 @@ const schedulerManager = {
         }
     },
 
-    editDay: (dateStr) => {
-        // Placeholder to prevent errors if clicked (though click is disabled on Day)
-        console.log("Day click disabled");
-    },
+    editDay: (dateStr) => { /* Disabled */ },
 
     renderSidebar: async () => { 
         const list = document.getElementById('scheduler-sidebar'); if(!list) return; list.innerHTML = '';
@@ -1361,6 +1356,7 @@ const schedulerManager = {
     
     deleteSlot: async (id) => { if(confirm("Remove?")) { await sb.from('schedules').delete().eq('id', id); document.getElementById('menu-modal')?.remove(); schedulerManager.init(); }}
 };
+
 document.addEventListener('DOMContentLoaded', () => {
     const loginForm = document.getElementById('auth-form');
     if(loginForm) {
@@ -1396,23 +1392,3 @@ window.schedulerManager = schedulerManager;
     auth.init();
 
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
