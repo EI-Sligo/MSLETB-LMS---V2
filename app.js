@@ -1058,12 +1058,12 @@ const schedulerManager = {
 
     shiftDates: async (filterFn, daysToShift) => {
         const toUpdate = schedulerManager.schedules.filter(filterFn);
-        if(toUpdate.length === 0) return ui.toast("No items found to shift.", "info");
+        if(toUpdate.length === 0) return ui.toast("No items found.", "info");
         
         for (const item of toUpdate) {
             let d = new Date(item.date);
             let daysAdded = 0;
-            // Add days, skipping weekends
+            // Shift dates skipping weekends
             while (daysAdded < Math.abs(daysToShift)) {
                 d.setDate(d.getDate() + (daysToShift > 0 ? 1 : -1));
                 if (d.getDay() !== 0 && d.getDay() !== 6) daysAdded++;
@@ -1074,7 +1074,7 @@ const schedulerManager = {
         await schedulerManager.init();
     },
 
-    // --- TOOL: Global Reuse / Clear (Still useful to have) ---
+    // --- TOOLS MENU (Reuse/Clear) ---
     openToolsMenu: () => {
         const existing = document.getElementById('menu-modal'); if(existing) existing.remove();
         const modal = document.createElement('div');
@@ -1085,13 +1085,13 @@ const schedulerManager = {
         modal.innerHTML = `
             <div class="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden border border-gray-200">
                 <div class="bg-slate-800 text-white p-3 font-bold flex justify-between items-center">
-                    <span><i class="ph ph-wrench"></i> Master Tools</span>
+                    <span><i class="ph ph-wrench"></i> Schedule Tools</span>
                     <button onclick="this.closest('#menu-modal').remove()" class="hover:text-red-300"><i class="ph ph-x"></i></button>
                 </div>
                 <div class="p-4 space-y-4">
                     <div class="p-3 bg-blue-50 rounded border border-blue-100">
-                        <div class="font-bold text-blue-800 text-sm mb-1">Reuse / Reset Start Date</div>
-                        <p class="text-[11px] text-blue-600 mb-2">Move the entire schedule to start on a new date.</p>
+                        <div class="font-bold text-blue-800 text-sm mb-1">Reuse Schedule</div>
+                        <p class="text-xs text-blue-600 mb-2">Shift entire schedule to start on a new date.</p>
                         <input type="date" id="tool-new-start" class="w-full border p-1 rounded text-sm mb-2 shadow-sm">
                         <button id="btn-run-reuse" class="w-full bg-blue-600 text-white py-1.5 rounded text-sm font-bold shadow hover:bg-blue-700 transition">Move All Items</button>
                     </div>
@@ -1104,19 +1104,24 @@ const schedulerManager = {
         document.getElementById('btn-run-reuse').onclick = () => {
             const newStart = document.getElementById('tool-new-start').value;
             if(!newStart || schedulerManager.schedules.length === 0) return;
+            
             const sorted = [...schedulerManager.schedules].sort((a,b) => new Date(a.date) - new Date(b.date));
             const currentStart = new Date(sorted[0].date);
             const target = new Date(newStart);
+            
+            // Calculate Working Days Difference
             let diff = 0;
             let temp = new Date(currentStart);
             const dir = target > currentStart ? 1 : -1;
             let safety = 0;
-            while(temp.toISOString().split('T')[0] !== newStart && safety < 5000) {
+            
+            while(temp.toISOString().split('T')[0] !== newStart && safety < 1000) {
                 temp.setDate(temp.getDate() + dir);
                 if(temp.getDay() !== 0 && temp.getDay() !== 6) diff += dir;
                 safety++;
             }
-            if(confirm(`Shift entire schedule by ${diff} working days?`)) {
+            
+            if(confirm(`Shift schedule by ${diff} working days?`)) {
                 schedulerManager.shiftDates(() => true, diff);
                 modal.remove();
             }
@@ -1134,23 +1139,35 @@ const schedulerManager = {
     renderCalendar: () => {
         const container = document.getElementById('calCont'); if(!container) return; container.innerHTML = '';
         
+        // Header (Replaces the one we removed from HTML)
         const headerHtml = `
-            <div class="flex justify-between items-center mb-2">
+            <div class="flex justify-between items-center p-4 border-b border-gray-200 bg-white shrink-0">
                 <div id="cal-month-title" class="font-bold text-lg text-slate-700 capitalize">
                     ${schedulerManager.currentDate.toLocaleDateString('default', { month: 'long', year: 'numeric' })}
                 </div>
                 <div class="flex gap-2">
-                    <button onclick="schedulerManager.changeMonth(-1)" class="p-1 hover:bg-slate-100 rounded"><i class="ph ph-caret-left"></i></button>
-                    <button onclick="schedulerManager.changeMonth(1)" class="p-1 hover:bg-slate-100 rounded"><i class="ph ph-caret-right"></i></button>
+                    <button onclick="schedulerManager.changeMonth(-1)" class="p-1.5 hover:bg-slate-100 rounded text-gray-600"><i class="ph ph-caret-left text-lg"></i></button>
+                    <button onclick="schedulerManager.changeMonth(1)" class="p-1.5 hover:bg-slate-100 rounded text-gray-600"><i class="ph ph-caret-right text-lg"></i></button>
                     ${isAdmin() ? `<button onclick="schedulerManager.openToolsMenu()" class="ml-2 bg-slate-800 text-white px-3 py-1 rounded text-xs font-bold shadow hover:bg-slate-700 flex items-center gap-1"><i class="ph ph-wrench"></i> Tools</button>` : ''}
                 </div>
             </div>`;
         
-        const wrapper = document.createElement('div'); wrapper.innerHTML = headerHtml;
+        // Create Wrapper
+        const wrapper = document.createElement('div'); 
+        wrapper.className = "flex flex-col h-full";
+        wrapper.innerHTML = headerHtml;
+        
+        // Grid Container (Scrollable)
+        const gridWrapper = document.createElement('div');
+        gridWrapper.className = "flex-1 overflow-auto bg-white"; // Main scroll area
+
         const grid = document.createElement('div'); 
-        grid.className = 'bg-white rounded-lg overflow-hidden border border-gray-200 min-w-[800px]';
-        grid.innerHTML = `<div class="cal-header"><div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div></div>`;
-        const body = document.createElement('div'); body.className = 'cal-grid-7';
+        // min-w-[800px] ensures calendar doesn't squish on mobile
+        grid.className = 'bg-white min-w-[800px]'; 
+        grid.innerHTML = `<div class="grid grid-cols-7 bg-gray-50 border-b border-gray-200 sticky top-0 z-20 font-bold text-gray-500 text-xs uppercase text-center py-2"><div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div></div>`;
+        
+        const body = document.createElement('div'); 
+        body.className = 'grid grid-cols-7 border-l border-gray-100';
 
         const year = schedulerManager.currentDate.getFullYear();
         const month = schedulerManager.currentDate.getMonth();
@@ -1158,7 +1175,7 @@ const schedulerManager = {
         const daysInMonth = new Date(year, month + 1, 0).getDate();
         const irishHolidays = getIrishHolidays(year);
 
-        for(let i=0; i<firstDay; i++) body.innerHTML += `<div class="cal-cell bg-gray-50"></div>`;
+        for(let i=0; i<firstDay; i++) body.innerHTML += `<div class="h-32 bg-gray-50/50 border-r border-b border-gray-100"></div>`;
 
         for(let d=1; d<=daysInMonth; d++) {
             const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
@@ -1167,19 +1184,19 @@ const schedulerManager = {
             const hoursUsed = slots.reduce((acc, s) => acc + s.hours_assigned, 0);
             
             const cell = document.createElement('div');
-            cell.className = `cal-cell ${isBlocked ? 'cal-blocked' : ''}`;
+            cell.className = `h-32 border-r border-b border-gray-100 relative p-1 transition hover:bg-gray-50 ${isBlocked ? 'bg-red-50/30' : 'bg-white'}`;
             
-            // REMOVED DAY CLICK (No more conflicts!)
+            // DAY INTERACTION (Drop only, no Click)
             cell.ondrop = (e) => schedulerManager.handleDrop(e, dateStr);
             cell.ondragover = (e) => e.preventDefault();
             
-            let html = `<div class="cal-date-badge">${d}</div>`;
-            if(isBlocked) html += `<div class="text-[10px] text-red-300 mt-4 text-center font-bold cal-blocked-text">HOLIDAY</div>`;
+            let html = `<div class="absolute top-1 right-2 text-xs font-bold ${isBlocked ? 'text-red-300' : 'text-gray-400'}">${d}</div>`;
+            if(isBlocked) html += `<div class="flex items-center justify-center h-full"><span class="text-[10px] font-bold text-red-200 rotate-[-15deg] select-none">HOLIDAY</span></div>`;
             cell.innerHTML = html;
 
             if(!isBlocked) {
                 const listDiv = document.createElement('div');
-                listDiv.className = "mt-4 space-y-1 min-h-[50px] relative z-10"; 
+                listDiv.className = "mt-5 space-y-1 h-full overflow-y-auto pr-1 pb-1"; 
                 
                 slots.forEach(s => {
                     const label = s.type === 'unit' ? (s.units ? s.units.title : 'Unknown') : s.label;
@@ -1195,7 +1212,7 @@ const schedulerManager = {
                     if(s.type === 'holiday') bgStyle = 'background: #fef2f2; border-left: 3px solid #ef4444; color: #991b1b;';
 
                     const item = document.createElement('div');
-                    item.className = "sched-item text-[10px] px-1 py-0.5 rounded cursor-pointer shadow-sm truncate hover:opacity-80 relative z-20";
+                    item.className = "text-[10px] px-1.5 py-1 rounded shadow-sm truncate hover:opacity-80 cursor-pointer select-none relative z-10";
                     item.style = bgStyle;
                     item.draggable = true;
                     item.innerText = `${s.hours_assigned}h: ${label}`;
@@ -1205,10 +1222,10 @@ const schedulerManager = {
                         schedulerManager.dragStartExisting(e, s.id); 
                     };
                     
-                    // CLICKING UNIT OPENS MENU
+                    // --- CLICK FIX IS HERE ---
                     item.onclick = (e) => {
                         e.preventDefault();
-                        e.stopPropagation(); 
+                        e.stopPropagation(); // Stops bubbling to day
                         schedulerManager.editSlot(s);
                     };
 
@@ -1216,14 +1233,17 @@ const schedulerManager = {
                 });
                 
                 cell.appendChild(listDiv);
-                if(hoursUsed > 0) cell.innerHTML += `<div class="absolute bottom-1 right-2 text-[9px] font-bold ${hoursUsed > 6.5 ? 'text-red-600' : 'text-gray-400'}">${hoursUsed}/6.5h</div>`;
+                if(hoursUsed > 0) cell.innerHTML += `<div class="absolute bottom-1 right-1 text-[9px] font-bold ${hoursUsed > 6.5 ? 'text-red-500' : 'text-gray-300'}">${hoursUsed}/6.5h</div>`;
             }
             body.appendChild(cell);
         }
-        grid.appendChild(body); wrapper.appendChild(grid); container.appendChild(wrapper);
+        grid.appendChild(body); 
+        gridWrapper.appendChild(grid);
+        wrapper.appendChild(gridWrapper);
+        container.appendChild(wrapper);
     },
 
-    // --- THE POWER MENU: Delete / Shift All / Shift Module ---
+    // --- UNIT MENU POPUP ---
     editSlot: (slot) => {
         const existing = document.getElementById('menu-modal'); if(existing) existing.remove();
         const modal = document.createElement('div');
@@ -1238,20 +1258,20 @@ const schedulerManager = {
         modal.innerHTML = `
             <div class="bg-white rounded-lg shadow-2xl w-full max-w-sm overflow-hidden p-4 space-y-3 border border-gray-200">
                 <div class="flex justify-between items-start">
-                    <h3 class="font-bold text-gray-800 text-sm w-3/4">${label}</h3>
+                    <h3 class="font-bold text-gray-800 text-sm w-3/4 truncate">${label}</h3>
                     <button id="btn-del-slot" class="text-white bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-xs font-bold shadow-sm transition">Delete</button>
                 </div>
                 
                 <div class="h-px bg-gray-100 my-2"></div>
                 
-                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Shift Entire Schedule (From Here)</div>
+                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Global Shift (From this day)</div>
                 <div class="grid grid-cols-2 gap-2 mb-3">
                     <button id="btn-shift-all-back" class="p-2 bg-orange-50 hover:bg-orange-100 text-orange-700 rounded border border-orange-200 text-xs font-bold transition text-center"><i class="ph ph-caret-left"></i> Back 1 Day</button>
                     <button id="btn-shift-all-fwd" class="p-2 bg-orange-50 hover:bg-orange-100 text-orange-700 rounded border border-orange-200 text-xs font-bold transition text-center">Forward 1 Day <i class="ph ph-caret-right"></i></button>
                 </div>
 
                 ${modId ? `
-                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Shift This Module Only</div>
+                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Module Shift</div>
                 <div class="grid grid-cols-2 gap-2">
                     <button id="btn-shift-m-back" class="p-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 text-xs font-bold transition text-center"><i class="ph ph-caret-left"></i> Back 1 Day</button>
                     <button id="btn-shift-m-fwd" class="p-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 text-xs font-bold transition text-center">Forward 1 Day <i class="ph ph-caret-right"></i></button>
@@ -1260,12 +1280,9 @@ const schedulerManager = {
         document.body.appendChild(modal);
         
         document.getElementById('btn-del-slot').onclick = () => { schedulerManager.deleteSlot(slot.id); modal.remove(); };
-        
-        // Global Listeners
         document.getElementById('btn-shift-all-back').onclick = () => { schedulerManager.shiftDates(s => s.date >= dateStr, -1); modal.remove(); };
         document.getElementById('btn-shift-all-fwd').onclick = () => { schedulerManager.shiftDates(s => s.date >= dateStr, 1); modal.remove(); };
 
-        // Module Listeners
         if(modId) {
             document.getElementById('btn-shift-m-back').onclick = () => { schedulerManager.shiftDates(s => s.units?.module_id == modId && s.date >= dateStr, -1); modal.remove(); };
             document.getElementById('btn-shift-m-fwd').onclick = () => { schedulerManager.shiftDates(s => s.units?.module_id == modId && s.date >= dateStr, 1); modal.remove(); };
@@ -1380,6 +1397,7 @@ window.schedulerManager = schedulerManager;
     auth.init();
 
 });
+
 
 
 
