@@ -1033,6 +1033,9 @@ const quizManager = {
 // ==========================================
 // 10. SCHEDULER MANAGER (FIXED)
 // ==========================================
+// ==========================================
+// 10. SCHEDULER MANAGER (FIXED)
+// ==========================================
 const schedulerManager = {
     currentDate: new Date(),
     schedules: [],
@@ -1178,7 +1181,7 @@ const schedulerManager = {
             const cell = document.createElement('div');
             cell.className = `h-32 border-r border-b border-gray-100 relative p-1 transition hover:bg-gray-50 ${isBlocked ? 'bg-red-50/30' : 'bg-white'}`;
             
-            // Drop Only - No Click on Cell
+            // DROP ONLY - NO CLICK ON DAY
             cell.ondrop = (e) => schedulerManager.handleDrop(e, dateStr);
             cell.ondragover = (e) => e.preventDefault();
             
@@ -1214,7 +1217,7 @@ const schedulerManager = {
                         schedulerManager.dragStartExisting(e, s.id); 
                     };
                     
-                    // --- CLICK HANDLER (Now inside the object!) ---
+                    // --- CLICK HANDLER (RESTORED) ---
                     item.onclick = (e) => {
                         e.preventDefault();
                         e.stopPropagation(); 
@@ -1235,7 +1238,7 @@ const schedulerManager = {
         container.appendChild(wrapper);
     },
 
-    // --- UNIT MENU POPUP (Inside the manager now) ---
+    // --- UNIT MENU POPUP ---
     editSlot: (slot) => {
         const existing = document.getElementById('menu-modal'); if(existing) existing.remove();
         const modal = document.createElement('div');
@@ -1279,6 +1282,11 @@ const schedulerManager = {
             document.getElementById('btn-shift-m-back').onclick = () => { schedulerManager.shiftDates(s => s.units?.module_id == modId && s.date >= dateStr, -1); modal.remove(); };
             document.getElementById('btn-shift-m-fwd').onclick = () => { schedulerManager.shiftDates(s => s.units?.module_id == modId && s.date >= dateStr, 1); modal.remove(); };
         }
+    },
+
+    editDay: (dateStr) => {
+        // Placeholder to prevent errors if clicked (though click is disabled on Day)
+        console.log("Day click disabled");
     },
 
     renderSidebar: async () => { 
