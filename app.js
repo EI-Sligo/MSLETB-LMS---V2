@@ -1031,7 +1031,7 @@ const quizManager = {
 };
 
 // ==========================================
-// 10. SCHEDULER MANAGER (Updated)
+// 10. SCHEDULER MANAGER (FIXED)
 // ==========================================
 const schedulerManager = {
     currentDate: new Date(),
@@ -1073,7 +1073,7 @@ const schedulerManager = {
         await schedulerManager.init();
     },
 
-    // --- TOOLS MENU ---
+    // --- TOOLS MENU: Reuse / Clear ---
     openToolsMenu: () => {
         const existing = document.getElementById('menu-modal'); if(existing) existing.remove();
         const modal = document.createElement('div');
@@ -1106,6 +1106,7 @@ const schedulerManager = {
             const sorted = [...schedulerManager.schedules].sort((a,b) => new Date(a.date) - new Date(b.date));
             const currentStart = new Date(sorted[0].date);
             const target = new Date(newStart);
+            
             let diff = 0;
             let temp = new Date(currentStart);
             const dir = target > currentStart ? 1 : -1;
@@ -1115,6 +1116,7 @@ const schedulerManager = {
                 if(temp.getDay() !== 0 && temp.getDay() !== 6) diff += dir;
                 safety++;
             }
+            
             if(confirm(`Shift entire schedule by ${diff} working days?`)) {
                 schedulerManager.shiftDates(() => true, diff);
                 modal.remove();
@@ -1130,11 +1132,10 @@ const schedulerManager = {
         };
     },
 
-    // --- CALENDAR RENDERER ---
     renderCalendar: () => {
         const container = document.getElementById('calCont'); if(!container) return; container.innerHTML = '';
         
-        // Dynamic Header
+        // Header
         const headerHtml = `
             <div class="flex justify-between items-center p-4 border-b border-gray-200 bg-white shrink-0">
                 <div id="cal-month-title" class="font-bold text-lg text-slate-700 capitalize">
@@ -1177,6 +1178,7 @@ const schedulerManager = {
             const cell = document.createElement('div');
             cell.className = `h-32 border-r border-b border-gray-100 relative p-1 transition hover:bg-gray-50 ${isBlocked ? 'bg-red-50/30' : 'bg-white'}`;
             
+            // Drop Only - No Click on Cell
             cell.ondrop = (e) => schedulerManager.handleDrop(e, dateStr);
             cell.ondragover = (e) => e.preventDefault();
             
@@ -1212,7 +1214,7 @@ const schedulerManager = {
                         schedulerManager.dragStartExisting(e, s.id); 
                     };
                     
-                    // --- CLICK EVENT (Must be inside the manager) ---
+                    // --- CLICK HANDLER (Now inside the object!) ---
                     item.onclick = (e) => {
                         e.preventDefault();
                         e.stopPropagation(); 
@@ -1351,7 +1353,6 @@ const schedulerManager = {
     
     deleteSlot: async (id) => { if(confirm("Remove?")) { await sb.from('schedules').delete().eq('id', id); document.getElementById('menu-modal')?.remove(); schedulerManager.init(); }}
 };
-    // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
     const loginForm = document.getElementById('auth-form');
     if(loginForm) {
