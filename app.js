@@ -1067,7 +1067,7 @@ const schedulerManager = {
 
     shiftDates: async (filterFn, daysToShift) => {
         const toUpdate = schedulerManager.schedules.filter(filterFn);
-        if(toUpdate.length === 0) return ui.toast("No items found to shift.", "info");
+        if(toUpdate.length === 0) return ui.toast("No items found.", "info");
         
         for (const item of toUpdate) {
             let d = new Date(item.date);
@@ -1082,7 +1082,7 @@ const schedulerManager = {
         await schedulerManager.init();
     },
 
-    // --- NEW: Open Tools Menu ---
+    // --- NEW: Tools Menu (Reuse/Clear) ---
     openToolsMenu: () => {
         const existing = document.getElementById('menu-modal'); if(existing) existing.remove();
         const modal = document.createElement('div');
@@ -1091,20 +1091,20 @@ const schedulerManager = {
         modal.onclick = (e) => { if(e.target === modal) modal.remove(); };
 
         modal.innerHTML = `
-            <div class="bg-white rounded-lg shadow-2xl w-full max-w-sm overflow-hidden border border-gray-200">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden border border-gray-200">
                 <div class="bg-slate-800 text-white p-3 font-bold flex justify-between items-center">
                     <span><i class="ph ph-wrench"></i> Schedule Tools</span>
                     <button onclick="this.closest('#menu-modal').remove()" class="hover:text-red-300"><i class="ph ph-x"></i></button>
                 </div>
-                <div class="p-4 space-y-3">
+                <div class="p-4 space-y-4">
                     <div class="p-3 bg-blue-50 rounded border border-blue-100">
                         <div class="font-bold text-blue-800 text-sm mb-1">Reuse Schedule</div>
-                        <p class="text-xs text-blue-600 mb-2">Shift entire schedule to start on a new date.</p>
-                        <input type="date" id="tool-new-start" class="w-full border p-1 rounded text-sm mb-2">
-                        <button id="btn-run-reuse" class="w-full bg-blue-600 text-white py-1 rounded text-sm font-bold shadow hover:bg-blue-700">Move All Items</button>
+                        <p class="text-[11px] text-blue-600 mb-2">Shift ALL items so the first one starts on a new date.</p>
+                        <input type="date" id="tool-new-start" class="w-full border p-1 rounded text-sm mb-2 shadow-sm">
+                        <button id="btn-run-reuse" class="w-full bg-blue-600 text-white py-1.5 rounded text-sm font-bold shadow hover:bg-blue-700 transition">Move All Items</button>
                     </div>
                     <div class="h-px bg-gray-100"></div>
-                    <button id="btn-run-clear" class="w-full p-2 text-left flex items-center gap-2 hover:bg-red-50 text-red-600 rounded transition"><i class="ph ph-trash"></i> Clear Entire Schedule</button>
+                    <button id="btn-run-clear" class="w-full p-2 text-left flex items-center gap-2 hover:bg-red-50 text-red-600 rounded transition font-medium"><i class="ph ph-trash"></i> Clear Entire Schedule</button>
                 </div>
             </div>`;
         document.body.appendChild(modal);
@@ -1115,29 +1115,29 @@ const schedulerManager = {
             
             const sorted = [...schedulerManager.schedules].sort((a,b) => new Date(a.date) - new Date(b.date));
             const currentStart = new Date(sorted[0].date);
-            const targetStart = new Date(newStart);
+            const target = new Date(newStart);
             
-            // Calculate Working Days Difference
+            // Calculate Working Days Diff
             let diff = 0;
-            let tempDate = new Date(currentStart);
-            const direction = targetStart > currentStart ? 1 : -1;
-            
-            // Limit loop to prevent crash
+            let temp = new Date(currentStart);
+            const dir = target > currentStart ? 1 : -1;
             let safety = 0;
-            while(tempDate.toISOString().split('T')[0] !== newStart && safety < 1000) {
-                tempDate.setDate(tempDate.getDate() + direction);
-                if(tempDate.getDay() !== 0 && tempDate.getDay() !== 6) diff += direction;
+            
+            // Basic check to prevent infinite loop
+            while(temp.toISOString().split('T')[0] !== newStart && safety < 5000) {
+                temp.setDate(temp.getDate() + dir);
+                if(temp.getDay() !== 0 && temp.getDay() !== 6) diff += dir;
                 safety++;
             }
             
-            if(confirm(`Shift schedule by ${diff} working days?`)) {
+            if(confirm(`Shift entire schedule by ${diff} working days?`)) {
                 schedulerManager.shiftDates(() => true, diff);
                 modal.remove();
             }
         };
 
         document.getElementById('btn-run-clear').onclick = async () => {
-            if(confirm("Delete ALL schedule items?")) {
+            if(confirm("Delete ALL items? This cannot be undone.")) {
                 await sb.from('schedules').delete().eq('course_id', state.activeCourse.id);
                 schedulerManager.init();
                 modal.remove();
@@ -1148,7 +1148,6 @@ const schedulerManager = {
     renderCalendar: () => {
         const container = document.getElementById('calCont'); if(!container) return; container.innerHTML = '';
         
-        // Header
         const headerHtml = `
             <div class="flex justify-between items-center mb-2">
                 <div id="cal-month-title" class="font-bold text-lg text-slate-700 capitalize">
@@ -1183,7 +1182,7 @@ const schedulerManager = {
             const cell = document.createElement('div');
             cell.className = `cal-cell ${isBlocked ? 'cal-blocked' : ''}`;
             
-            // DAY CLICK: Only trigger if clicking the cell background directly
+            // DAY CLICK: Only triggers if clicking the background
             cell.onclick = (e) => { 
                 if(e.target === cell || e.target.classList.contains('cal-date-badge') || e.target.classList.contains('cal-blocked-text')) {
                     schedulerManager.editDay(dateStr); 
@@ -1197,7 +1196,7 @@ const schedulerManager = {
             cell.innerHTML = html;
 
             if(!isBlocked) {
-                // Container captures no pointer events so clicks pass to cell, unless item is clicked
+                // CONTAINER: pointer-events-none ensures clicks pass through to the cell
                 const listDiv = document.createElement('div');
                 listDiv.className = "mt-4 space-y-1 min-h-[50px] relative z-10 pointer-events-none"; 
                 
@@ -1215,8 +1214,8 @@ const schedulerManager = {
                     if(s.type === 'holiday') bgStyle = 'background: #fef2f2; border-left: 3px solid #ef4444; color: #991b1b;';
 
                     const item = document.createElement('div');
-                    // pointer-events-auto makes the ITEM clickable again
-                    item.className = "sched-item text-[10px] px-1 py-0.5 rounded cursor-pointer shadow-sm truncate hover:opacity-80 relative pointer-events-auto";
+                    // ITEM: pointer-events-auto makes the ITEM clickable again
+                    item.className = "sched-item text-[10px] px-1 py-0.5 rounded cursor-pointer shadow-sm truncate hover:opacity-80 relative pointer-events-auto z-20";
                     item.style = bgStyle;
                     item.draggable = true;
                     item.innerText = `${s.hours_assigned}h: ${label}`;
@@ -1226,7 +1225,7 @@ const schedulerManager = {
                         schedulerManager.dragStartExisting(e, s.id); 
                     };
                     
-                    // UNIT CLICK: Critical stopPropagation to prevent Day Menu
+                    // UNIT CLICK
                     item.onclick = (e) => {
                         e.preventDefault();
                         e.stopPropagation(); 
@@ -1263,7 +1262,7 @@ const schedulerManager = {
                 </div>
                 ${modId ? `
                 <div class="h-px bg-gray-100 my-2"></div>
-                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Shift Module (From this day)</div>
+                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Shift Module</div>
                 <div class="grid grid-cols-2 gap-2">
                     <button id="btn-shift-m-back" class="p-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 text-xs font-bold transition text-center"><i class="ph ph-caret-left"></i> Back 1 Day</button>
                     <button id="btn-shift-m-fwd" class="p-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 text-xs font-bold transition text-center">Forward 1 Day <i class="ph ph-caret-right"></i></button>
@@ -1354,6 +1353,7 @@ const schedulerManager = {
 
         let hours = 0; let unitId = null; let label = '';
         if(type === 'unit') {
+            // FIX: Parse Int to prevent 400 Bad Request
             unitId = parseInt(e.dataTransfer.getData('id')); 
             const ask = prompt(`Assign hours (Max ${available}) or type 'SHIFT' to insert:`, available);
             if(ask && ask.toUpperCase() === 'SHIFT') {
@@ -1365,18 +1365,12 @@ const schedulerManager = {
                 if(hours > available) return alert("Not enough space. Use 'SHIFT'.");
             }
         } else {
+            // FIX: No more popup for label, auto-name it
             label = type.charAt(0).toUpperCase() + type.slice(1); 
             hours = 6.5;
         }
 
-        await sb.from('schedules').insert([{ 
-            course_id: state.activeCourse.id, 
-            unit_id: unitId, 
-            date: dateStr, 
-            hours_assigned: hours, 
-            type: type, 
-            label: label 
-        }]);
+        await sb.from('schedules').insert([{ course_id: state.activeCourse.id, unit_id: unitId, date: dateStr, hours_assigned: hours, type: type, label: label }]);
         await schedulerManager.init();
     },
     
@@ -1418,6 +1412,7 @@ window.schedulerManager = schedulerManager;
     auth.init();
 
 });
+
 
 
 
