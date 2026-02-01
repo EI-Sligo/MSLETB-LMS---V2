@@ -1067,11 +1067,12 @@ const schedulerManager = {
 
     shiftDates: async (filterFn, daysToShift) => {
         const toUpdate = schedulerManager.schedules.filter(filterFn);
-        if(toUpdate.length === 0) return ui.toast("No items found.", "info");
+        if(toUpdate.length === 0) return ui.toast("No items found to shift.", "info");
         
         for (const item of toUpdate) {
             let d = new Date(item.date);
             let daysAdded = 0;
+            // Shift dates skipping weekends
             while (daysAdded < Math.abs(daysToShift)) {
                 d.setDate(d.getDate() + (daysToShift > 0 ? 1 : -1));
                 if (d.getDay() !== 0 && d.getDay() !== 6) daysAdded++;
@@ -1082,7 +1083,7 @@ const schedulerManager = {
         await schedulerManager.init();
     },
 
-    // --- NEW: Tools Menu (Reuse/Clear) ---
+    // --- NEW: Open Tools Menu ---
     openToolsMenu: () => {
         const existing = document.getElementById('menu-modal'); if(existing) existing.remove();
         const modal = document.createElement('div');
@@ -1091,7 +1092,7 @@ const schedulerManager = {
         modal.onclick = (e) => { if(e.target === modal) modal.remove(); };
 
         modal.innerHTML = `
-            <div class="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden border border-gray-200">
+            <div class="bg-white rounded-lg shadow-2xl w-full max-w-sm overflow-hidden border border-gray-200">
                 <div class="bg-slate-800 text-white p-3 font-bold flex justify-between items-center">
                     <span><i class="ph ph-wrench"></i> Schedule Tools</span>
                     <button onclick="this.closest('#menu-modal').remove()" class="hover:text-red-300"><i class="ph ph-x"></i></button>
@@ -1099,9 +1100,9 @@ const schedulerManager = {
                 <div class="p-4 space-y-4">
                     <div class="p-3 bg-blue-50 rounded border border-blue-100">
                         <div class="font-bold text-blue-800 text-sm mb-1">Reuse Schedule</div>
-                        <p class="text-[11px] text-blue-600 mb-2">Shift ALL items so the first one starts on a new date.</p>
-                        <input type="date" id="tool-new-start" class="w-full border p-1 rounded text-sm mb-2 shadow-sm">
-                        <button id="btn-run-reuse" class="w-full bg-blue-600 text-white py-1.5 rounded text-sm font-bold shadow hover:bg-blue-700 transition">Move All Items</button>
+                        <p class="text-xs text-blue-600 mb-2">Shift entire schedule to start on a new date.</p>
+                        <input type="date" id="tool-new-start" class="w-full border p-1 rounded text-sm mb-2">
+                        <button id="btn-run-reuse" class="w-full bg-blue-600 text-white py-1.5 rounded text-sm font-bold shadow hover:bg-blue-700">Move All Items</button>
                     </div>
                     <div class="h-px bg-gray-100"></div>
                     <button id="btn-run-clear" class="w-full p-2 text-left flex items-center gap-2 hover:bg-red-50 text-red-600 rounded transition font-medium"><i class="ph ph-trash"></i> Clear Entire Schedule</button>
@@ -1117,20 +1118,20 @@ const schedulerManager = {
             const currentStart = new Date(sorted[0].date);
             const target = new Date(newStart);
             
-            // Calculate Working Days Diff
+            // Calculate Working Days Difference
             let diff = 0;
             let temp = new Date(currentStart);
             const dir = target > currentStart ? 1 : -1;
             let safety = 0;
             
-            // Basic check to prevent infinite loop
-            while(temp.toISOString().split('T')[0] !== newStart && safety < 5000) {
+            // Find working days difference
+            while(temp.toISOString().split('T')[0] !== newStart && safety < 1000) {
                 temp.setDate(temp.getDate() + dir);
                 if(temp.getDay() !== 0 && temp.getDay() !== 6) diff += dir;
                 safety++;
             }
             
-            if(confirm(`Shift entire schedule by ${diff} working days?`)) {
+            if(confirm(`Shift schedule by ${diff} working days?`)) {
                 schedulerManager.shiftDates(() => true, diff);
                 modal.remove();
             }
@@ -1148,6 +1149,7 @@ const schedulerManager = {
     renderCalendar: () => {
         const container = document.getElementById('calCont'); if(!container) return; container.innerHTML = '';
         
+        // Header
         const headerHtml = `
             <div class="flex justify-between items-center mb-2">
                 <div id="cal-month-title" class="font-bold text-lg text-slate-700 capitalize">
@@ -1182,7 +1184,7 @@ const schedulerManager = {
             const cell = document.createElement('div');
             cell.className = `cal-cell ${isBlocked ? 'cal-blocked' : ''}`;
             
-            // DAY CLICK: Only triggers if clicking the background
+            // DAY CLICK: Only trigger if clicking the cell background directly
             cell.onclick = (e) => { 
                 if(e.target === cell || e.target.classList.contains('cal-date-badge') || e.target.classList.contains('cal-blocked-text')) {
                     schedulerManager.editDay(dateStr); 
@@ -1196,7 +1198,7 @@ const schedulerManager = {
             cell.innerHTML = html;
 
             if(!isBlocked) {
-                // CONTAINER: pointer-events-none ensures clicks pass through to the cell
+                // CONTAINER
                 const listDiv = document.createElement('div');
                 listDiv.className = "mt-4 space-y-1 min-h-[50px] relative z-10 pointer-events-none"; 
                 
@@ -1214,7 +1216,7 @@ const schedulerManager = {
                     if(s.type === 'holiday') bgStyle = 'background: #fef2f2; border-left: 3px solid #ef4444; color: #991b1b;';
 
                     const item = document.createElement('div');
-                    // ITEM: pointer-events-auto makes the ITEM clickable again
+                    // FIX: Re-enable pointer events so clicking works
                     item.className = "sched-item text-[10px] px-1 py-0.5 rounded cursor-pointer shadow-sm truncate hover:opacity-80 relative pointer-events-auto z-20";
                     item.style = bgStyle;
                     item.draggable = true;
@@ -1225,7 +1227,7 @@ const schedulerManager = {
                         schedulerManager.dragStartExisting(e, s.id); 
                     };
                     
-                    // UNIT CLICK
+                    // FIX: Add CLICK handler to open menu
                     item.onclick = (e) => {
                         e.preventDefault();
                         e.stopPropagation(); 
@@ -1262,7 +1264,7 @@ const schedulerManager = {
                 </div>
                 ${modId ? `
                 <div class="h-px bg-gray-100 my-2"></div>
-                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Shift Module</div>
+                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Shift Module (From this day)</div>
                 <div class="grid grid-cols-2 gap-2">
                     <button id="btn-shift-m-back" class="p-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 text-xs font-bold transition text-center"><i class="ph ph-caret-left"></i> Back 1 Day</button>
                     <button id="btn-shift-m-fwd" class="p-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 text-xs font-bold transition text-center">Forward 1 Day <i class="ph ph-caret-right"></i></button>
@@ -1370,7 +1372,14 @@ const schedulerManager = {
             hours = 6.5;
         }
 
-        await sb.from('schedules').insert([{ course_id: state.activeCourse.id, unit_id: unitId, date: dateStr, hours_assigned: hours, type: type, label: label }]);
+        await sb.from('schedules').insert([{ 
+            course_id: state.activeCourse.id, 
+            unit_id: unitId, 
+            date: dateStr, 
+            hours_assigned: hours, 
+            type: type, 
+            label: label 
+        }]);
         await schedulerManager.init();
     },
     
@@ -1412,6 +1421,7 @@ window.schedulerManager = schedulerManager;
     auth.init();
 
 });
+
 
 
 
