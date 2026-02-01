@@ -373,73 +373,70 @@ const dashboard = {
 // 6. CONTENT & SYLLABUS MANAGER
 // ==========================================
 const courseManager = {
-    // REPLACE your existing courseManager.loadSyllabus with this:
-loadSyllabus: async () => {
-    const list = document.getElementById('syllabus-list');
-    list.innerHTML = '<div class="p-4 text-center"><i class="ph ph-spinner animate-spin text-teal-600"></i></div>';
-    
-    // Assign Colors to Modules for consistency
-    const palette = ['#dbeafe', '#d1fae5', '#fef9c3', '#fee2e2', '#f3e8ff', '#ffedd5'];
-    
-    let query = sb.from('sections').select('*, modules(*, units(*, content(*)))') 
-        .eq('course_id', state.activeCourse.id).order('position', { ascending: true });
-    if(!isAdmin()) query = query.eq('is_visible', true);
-
-    const { data: sections } = await query;
-    list.innerHTML = '';
-    state.structure = sections || []; 
-
-    if (!sections || sections.length === 0) { list.innerHTML = '<div class="text-center text-gray-400 p-4 text-sm">No sections yet.</div>'; return; }
-
-    sections.forEach(section => {
-        let modules = (section.modules || []).sort((a,b) => a.position - b.position);
-        if(!isAdmin()) modules = modules.filter(m => m.is_visible);
-
-        // Safe strings for HTML attributes
-        const safeSecTitle = section.title.replace(/'/g, "\\'"); 
-
-        const sectionEl = document.createElement('div');
-        sectionEl.className = "border-b border-gray-100 last:border-0";
+    loadSyllabus: async () => {
+        const list = document.getElementById('syllabus-list');
+        list.innerHTML = '<div class="p-4 text-center"><i class="ph ph-spinner animate-spin text-teal-600"></i></div>';
         
-        sectionEl.innerHTML = `
-            <div class="flex justify-between items-center p-3 hover:bg-slate-50 group cursor-pointer" onclick="ui.toggleAccordion('${section.id}')">
-                <div class="flex items-center gap-2 font-bold text-xs text-gray-600 uppercase tracking-wide flex-1">
-                    <i id="acc-icon-${section.id}" class="ph ph-caret-down transition-transform duration-200"></i>
-                    <span class="truncate">${section.title}</span>
+        const palette = ['#dbeafe', '#d1fae5', '#fef9c3', '#fee2e2', '#f3e8ff', '#ffedd5'];
+        
+        let query = sb.from('sections').select('*, modules(*, units(*, content(*)))') 
+            .eq('course_id', state.activeCourse.id).order('position', { ascending: true });
+        if(!isAdmin()) query = query.eq('is_visible', true);
+
+        const { data: sections } = await query;
+        list.innerHTML = '';
+        state.structure = sections || []; 
+
+        if (!sections || sections.length === 0) { list.innerHTML = '<div class="text-center text-gray-400 p-4 text-sm">No sections yet.</div>'; return; }
+
+        sections.forEach(section => {
+            let modules = (section.modules || []).sort((a,b) => a.position - b.position);
+            if(!isAdmin()) modules = modules.filter(m => m.is_visible);
+
+            const safeSecTitle = section.title.replace(/'/g, "\\'"); 
+
+            const sectionEl = document.createElement('div');
+            sectionEl.className = "border-b border-gray-100 last:border-0";
+            
+            sectionEl.innerHTML = `
+                <div class="flex justify-between items-center p-3 hover:bg-slate-50 group cursor-pointer" onclick="ui.toggleAccordion('${section.id}')">
+                    <div class="flex items-center gap-2 font-bold text-xs text-gray-600 uppercase tracking-wide flex-1">
+                        <i id="acc-icon-${section.id}" class="ph ph-caret-down transition-transform duration-200"></i>
+                        <span class="truncate">${section.title}</span>
+                    </div>
+                    <div class="flex items-center gap-2" onclick="event.stopPropagation()">
+                        ${isAdmin() ? `
+                            <button onclick="courseManager.bulkCreate('module', ${section.id})" class="text-teal-600 hover:bg-teal-50 p-1 rounded" title="Add Module"><i class="ph ph-plus"></i></button>
+                            <button onclick="entityModal.open('section', ${section.id}, '${safeSecTitle}')" class="text-blue-500 hover:bg-blue-50 p-1 rounded"><i class="ph ph-pencil-simple"></i></button>
+                            <button onclick="courseManager.deleteItem('sections', ${section.id})" class="text-red-400 hover:bg-red-50 p-1 rounded"><i class="ph ph-trash"></i></button>
+                        ` : ''}
+                    </div>
                 </div>
-                <div class="flex items-center gap-2" onclick="event.stopPropagation()">
-                    ${isAdmin() ? `
-                        <button onclick="courseManager.bulkCreate('module', ${section.id})" class="text-teal-600 hover:bg-teal-50 p-1 rounded" title="Add Module"><i class="ph ph-plus"></i></button>
-                        <button onclick="entityModal.open('section', ${section.id}, '${safeSecTitle}')" class="text-blue-500 hover:bg-blue-50 p-1 rounded"><i class="ph ph-pencil-simple"></i></button>
-                        <button onclick="courseManager.deleteItem('sections', ${section.id})" class="text-red-400 hover:bg-red-50 p-1 rounded"><i class="ph ph-trash"></i></button>
-                    ` : ''}
+                <div id="acc-content-${section.id}" class="pl-4 pb-2 space-y-1 hidden">
+                    ${modules.map((mod, idx) => {
+                        const safeModTitle = mod.title.replace(/'/g, "\\'");
+                        const modColor = palette[idx % palette.length]; 
+                        mod.color = modColor; 
+                        return `
+                        <div class="p-2 rounded cursor-pointer text-sm text-gray-600 hover:bg-teal-50 hover:text-teal-700 flex justify-between items-center group transition" onclick="courseManager.openModule('${mod.id}')">
+                            <div class="flex items-center gap-2 flex-1">
+                                <div class="w-2 h-2 rounded-full" style="background:${modColor}"></div>
+                                <i class="ph ph-folder-notch text-gray-400"></i>
+                                <span class="truncate">${mod.title}</span>
+                            </div>
+                            <div class="flex items-center gap-3" onclick="event.stopPropagation()">
+                                ${isAdmin() ? `
+                                    <button onclick="entityModal.open('module', ${mod.id}, '${safeModTitle}')" class="text-blue-400 hover:text-blue-600"><i class="ph ph-pencil-simple"></i></button>
+                                    <button onclick="courseManager.deleteItem('modules', ${mod.id})" class="text-red-400 hover:text-red-600"><i class="ph ph-trash"></i></button>
+                                ` : ''}
+                            </div>
+                        </div>`;
+                    }).join('')}
                 </div>
-            </div>
-            <div id="acc-content-${section.id}" class="pl-4 pb-2 space-y-1 hidden">
-                ${modules.map((mod, idx) => {
-                    const safeModTitle = mod.title.replace(/'/g, "\\'");
-                    const modColor = palette[idx % palette.length]; // Assign color based on index
-                    mod.color = modColor; // Save for scheduler
-                    return `
-                    <div class="p-2 rounded cursor-pointer text-sm text-gray-600 hover:bg-teal-50 hover:text-teal-700 flex justify-between items-center group transition" onclick="courseManager.openModule('${mod.id}')">
-                        <div class="flex items-center gap-2 flex-1">
-                            <div class="w-2 h-2 rounded-full" style="background:${modColor}"></div>
-                            <i class="ph ph-folder-notch text-gray-400"></i>
-                            <span class="truncate">${mod.title}</span>
-                        </div>
-                        <div class="flex items-center gap-3" onclick="event.stopPropagation()">
-                            ${isAdmin() ? `
-                                <button onclick="entityModal.open('module', ${mod.id}, '${safeModTitle}')" class="text-blue-400 hover:text-blue-600"><i class="ph ph-pencil-simple"></i></button>
-                                <button onclick="courseManager.deleteItem('modules', ${mod.id})" class="text-red-400 hover:text-red-600"><i class="ph ph-trash"></i></button>
-                            ` : ''}
-                        </div>
-                    </div>`;
-                }).join('')}
-            </div>
-        `;
-        list.appendChild(sectionEl);
-    });
-},
+            `;
+            list.appendChild(sectionEl);
+        });
+    },
 
     toggleVisibility: async (table, id, isVisible) => {
         try { await sb.from(table).update({ is_visible: isVisible }).eq('id', id); ui.toast("Visibility updated", "success"); }
@@ -454,7 +451,6 @@ loadSyllabus: async () => {
         } catch (e) { ui.toast("Error updating hours", "error"); }
     },
 
-    // BULK CREATE HELPER
     bulkCreate: async (type, parentId) => {
         const title = prompt(`Enter ${type} title:`);
         if(!title) return;
@@ -465,8 +461,8 @@ loadSyllabus: async () => {
         else if(type === 'unit') { payload.module_id = parentId; payload.total_hours_required = 0; }
         
         await sb.from(type + 's').insert([payload]);
-        document.querySelector('.fixed.inset-0').remove(); // Close modal
-        courseManager.openBulkEdit(); // Re-open to refresh
+        document.querySelector('.fixed.inset-0').remove(); 
+        courseManager.openBulkEdit(); 
     },
     
     updateEntity: async (table, id, field, value) => { await sb.from(table).update({ [field]: value }).eq('id', id); },
@@ -478,11 +474,11 @@ loadSyllabus: async () => {
         let rows = [];
         sections?.forEach(sec => {
             rows.push({ type: 'section', id: sec.id, title: sec.title, indent: 0 });
-            rows.push({ type: 'btn-module', parentId: sec.id, indent: 1 }); // Button to add Module
+            rows.push({ type: 'btn-module', parentId: sec.id, indent: 1 }); 
 
             sec.modules?.sort((a,b)=>a.position-b.position).forEach(mod => {
                 rows.push({ type: 'module', id: mod.id, title: mod.title, indent: 1 });
-                rows.push({ type: 'btn-unit', parentId: mod.id, indent: 2 }); // Button to add Unit
+                rows.push({ type: 'btn-unit', parentId: mod.id, indent: 2 }); 
 
                 mod.units?.sort((a,b)=>a.position-b.position).forEach(unit => {
                     rows.push({ type: 'unit', id: unit.id, title: unit.title, hours: unit.total_hours_required, indent: 2 });
@@ -590,32 +586,31 @@ loadSyllabus: async () => {
                 unit.content.forEach(item => { if(groups[item.type]) groups[item.type].push(item); else groups['file'].push(item); });
 
                 Object.keys(groups).forEach(type => {
-    if(groups[type].length === 0) return;
-    
-    // Capitalize the first letter and keep it singular (e.g., "Video", "Quiz")
-    const groupTitle = type.charAt(0).toUpperCase() + type.slice(1);
-    const groupIcon = getContentEmoji(type); 
+                    if(groups[type].length === 0) return;
+                    
+                    const groupTitle = type.charAt(0).toUpperCase() + type.slice(1);
+                    const groupIcon = getContentEmoji(type); 
 
-    contentContainer.innerHTML += `
-        <details class="group/nested bg-white border border-gray-200 rounded-lg overflow-hidden mb-2">
-            <summary class="flex justify-between items-center p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 list-none">
-                <span class="font-bold text-sm text-gray-700 flex items-center gap-2">
-                    ${groupIcon} ${groupTitle} 
-                    <span class="bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full">${groups[type].length}</span>
-                </span>
-                <i class="ph ph-caret-down text-gray-400 transition-transform group-open/nested:rotate-180"></i>
-            </summary>
-            <div class="p-3 space-y-2 border-t border-gray-100">
-                ${groups[type].map(file => renderContentItem(file, unit.id, myWork)).join('')}
-            </div>
-        </details>`;
-});
+                    contentContainer.innerHTML += `
+                        <details class="group/nested bg-white border border-gray-200 rounded-lg overflow-hidden mb-2">
+                            <summary class="flex justify-between items-center p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 list-none">
+                                <span class="font-bold text-sm text-gray-700 flex items-center gap-2">
+                                    ${groupIcon} ${groupTitle} 
+                                    <span class="bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full">${groups[type].length}</span>
+                                </span>
+                                <i class="ph ph-caret-down text-gray-400 transition-transform group-open/nested:rotate-180"></i>
+                            </summary>
+                            <div class="p-3 space-y-2 border-t border-gray-100">
+                                ${groups[type].map(file => renderContentItem(file, unit.id, myWork)).join('')}
+                            </div>
+                        </details>`;
+                });
             } else { contentContainer.innerHTML = '<p class="text-sm text-gray-400 italic pl-2">No content yet.</p>'; }
             container.appendChild(unitEl);
         });
     },
 
-    moveItem: async (table, id, direction) => { /* Same as before */ 
+    moveItem: async (table, id, direction) => { 
         let query = sb.from(table).select('id, position');
         if (table === 'sections') query = query.eq('course_id', state.activeCourse.id);
         else if (table === 'modules') {
@@ -639,17 +634,14 @@ loadSyllabus: async () => {
         if (table === 'units' || table === 'content') courseManager.openModule(state.activeModule.id); else courseManager.loadSyllabus();
     },
     editItem: async (table, id, currentTitle) => {
-    // We removed the prompt line entirely. 
-    // If you want clicking 'Edit' to simply refresh the view, keep this:
-    if(table === 'sections' || table === 'modules') {
-        courseManager.loadSyllabus(); 
-    } else {
-        courseManager.openModule(state.activeModule.id);
-    }
-},
+        if(table === 'sections' || table === 'modules') {
+            courseManager.loadSyllabus(); 
+        } else {
+            courseManager.openModule(state.activeModule.id);
+        }
+    },
     
     launchContent: async (id, type, url) => {
-        // YOUTUBE FIX
         if (url && (url.includes('youtube.com') || url.includes('youtu.be'))) { window.open(url, '_blank'); return; }
 
         const { data: content } = await sb.from('content').select('allow_download').eq('id', id).single();
@@ -657,11 +649,8 @@ loadSyllabus: async () => {
         const canDownload = isAdmin() || (content && content.allow_download);
 
         if(type === 'simulator') {
-            // FIX: Ensure clean URL and proper parameters
             const baseUrl = url.split('?')[0]; 
-            // If the user entered just "simulator", append "/index.html"
             const cleanUrl = baseUrl.endsWith('/') ? baseUrl + 'index.html' : (baseUrl.endsWith('html') ? baseUrl : baseUrl + '/index.html');
-            
             window.open(`${cleanUrl}?auth=msletb_secure_launch&uid=${state.user.id}&cid=${id}`, '_blank');
         }
         else if (type === 'audio') { 
@@ -706,13 +695,11 @@ loadSyllabus: async () => {
         html += `</tbody></table></div>`; el.innerHTML = html;
     },
     
-    // UPDATED ENROLL LOGIC (WITH ERROR HANDLING)
     enroll: async () => {
         const email = document.getElementById('email-in').value; 
         const role = document.getElementById('role-in').value;
         if(!email) return alert("Please enter an email address");
 
-        // Check if user exists
         const { data: u, error: uError } = await sb.from('profiles').select('id').eq('email', email).maybeSingle();
         
         if (uError) {
@@ -722,7 +709,6 @@ loadSyllabus: async () => {
         }
 
         if(u) { 
-            // User exists, add to enrollments
             const { error } = await sb.from('enrollments').insert([{course_id:state.activeCourse.id, user_id:u.id, course_role:role}]); 
             if(error) {
                 console.error("Enrollment error:", error);
@@ -731,7 +717,6 @@ loadSyllabus: async () => {
                 ui.toast("Enrolled successfully!", "success"); 
             }
         } else { 
-            // User doesn't exist, add to invitations
             const { error } = await sb.from('invitations').insert([{course_id:state.activeCourse.id, email, role, invited_by:state.user.id}]); 
             if(error) {
                 console.error("Invite error:", error);
@@ -1031,7 +1016,7 @@ const quizManager = {
 };
 
 // ==========================================
-// 10. SCHEDULER MANAGER (FINAL FIXED VERSION)
+// 10. SCHEDULER MANAGER (FIXED)
 // ==========================================
 const schedulerManager = {
     currentDate: new Date(),
@@ -1074,7 +1059,7 @@ const schedulerManager = {
         await schedulerManager.init();
     },
 
-    // --- TOOLS MENU ---
+    // --- TOOLS MENU: Reuse / Clear ---
     openToolsMenu: () => {
         const existing = document.getElementById('menu-modal'); if(existing) existing.remove();
         const modal = document.createElement('div');
@@ -1179,7 +1164,7 @@ const schedulerManager = {
             const cell = document.createElement('div');
             cell.className = `h-32 border-r border-b border-gray-100 relative p-1 transition hover:bg-gray-50 ${isBlocked ? 'bg-red-50/30' : 'bg-white'}`;
             
-            // Drop Only
+            // Drop Only - No Click on Day
             cell.ondrop = (e) => schedulerManager.handleDrop(e, dateStr);
             cell.ondragover = (e) => e.preventDefault();
             
@@ -1215,7 +1200,7 @@ const schedulerManager = {
                         schedulerManager.dragStartExisting(e, s.id); 
                     };
                     
-                    // --- CLICK HANDLER (FIXED) ---
+                    // --- CLICK HANDLER (Now inside the object!) ---
                     item.onclick = (e) => {
                         e.preventDefault();
                         e.stopPropagation(); 
@@ -1236,7 +1221,7 @@ const schedulerManager = {
         container.appendChild(wrapper);
     },
 
-    // --- UNIT MENU POPUP (THIS WAS MISSING BEFORE) ---
+    // --- UNIT MENU POPUP (Inside the manager now) ---
     editSlot: (slot) => {
         const existing = document.getElementById('menu-modal'); if(existing) existing.remove();
         const modal = document.createElement('div');
@@ -1282,7 +1267,10 @@ const schedulerManager = {
         }
     },
 
-    editDay: (dateStr) => { /* Disabled */ },
+    editDay: (dateStr) => {
+        // Placeholder to prevent errors if clicked (though click is disabled on Day)
+        console.log("Day click disabled");
+    },
 
     renderSidebar: async () => { 
         const list = document.getElementById('scheduler-sidebar'); if(!list) return; list.innerHTML = '';
@@ -1357,6 +1345,21 @@ const schedulerManager = {
     deleteSlot: async (id) => { if(confirm("Remove?")) { await sb.from('schedules').delete().eq('id', id); document.getElementById('menu-modal')?.remove(); schedulerManager.init(); }}
 };
 
+// ==========================================
+// 11. EXPOSE TO WINDOW (REQUIRED FOR HTML ONCLICK)
+// ==========================================
+window.auth = auth;
+window.authUI = authUI;
+window.app = app;
+window.ui = ui;
+window.dashboard = dashboard;
+window.courseManager = courseManager;
+window.entityModal = entityModal;
+window.contentModal = contentModal;
+window.assignmentManager = assignmentManager;
+window.quizManager = quizManager;
+window.schedulerManager = schedulerManager;
+
 document.addEventListener('DOMContentLoaded', () => {
     const loginForm = document.getElementById('auth-form');
     if(loginForm) {
@@ -1373,22 +1376,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
-
-    // ==========================================
-// 11. EXPOSE TO WINDOW (REQUIRED FOR HTML ONCLICK)
-// ==========================================
-window.auth = auth;
-window.authUI = authUI;
-window.app = app;
-window.ui = ui;
-window.dashboard = dashboard;
-window.courseManager = courseManager;
-window.entityModal = entityModal;
-window.contentModal = contentModal;
-window.assignmentManager = assignmentManager;
-window.quizManager = quizManager;
-window.schedulerManager = schedulerManager;
+    
     document.getElementById('btn-add-section')?.addEventListener('click', () => entityModal.open('section'));
     auth.init();
-
 });
