@@ -54,7 +54,7 @@
 <body class="bg-slate-50 text-slate-800 font-sans h-screen overflow-hidden">
 
     <div id="login-view" class="h-full w-full flex items-center justify-center bg-teal-700">
-        <div class="bg-white p-8 rounded-lg shadow-2xl w-96 text-center fade-in">
+        <div class="bg-white p-8 rounded-lg shadow-2xl w-full max-w-sm mx-4 text-center fade-in">
             <div class="mb-6 flex justify-center">
                 <div class="h-16 w-16 bg-teal-100 text-teal-600 rounded-full flex items-center justify-center text-3xl">
                     <i class="ph ph-graduation-cap"></i>
@@ -146,14 +146,29 @@
                     </div>
                 </div>
 
-                <div id="tab-content" class="flex-1 bg-white rounded-xl shadow border border-gray-200 overflow-hidden flex">
-                    <div class="w-1/3 border-r border-gray-200 bg-gray-50 flex flex-col">
-                        <div class="p-4 border-b border-gray-200 font-semibold text-gray-700 flex justify-between bg-gray-50">
-                            <span>Syllabus</span>
-                            <button id="btn-add-section" class="text-teal-600 hover:text-teal-800 hidden text-sm" onclick="entityModal.open('section')">+ Section</button>
-                        </div>
-                        <div id="syllabus-list" class="overflow-y-auto flex-1 p-2 space-y-2 bg-white"></div>
-                    </div>
+                <div id="tab-content" class="flex-1 bg-white rounded-xl shadow border border-gray-200 overflow-hidden flex flex-col md:flex-row">
+    
+    <div class="w-full md:w-1/3 h-64 md:h-auto border-b md:border-b-0 md:border-r border-gray-200 bg-gray-50 flex flex-col">
+        <div class="p-4 border-b border-gray-200 font-semibold text-gray-700 flex justify-between bg-gray-50">
+            <span>Syllabus</span>
+            <button id="btn-add-section" class="text-teal-600 hover:text-teal-800 hidden text-sm" onclick="entityModal.open('section')">+ Section</button>
+        </div>
+        <div id="syllabus-list" class="overflow-y-auto flex-1 p-2 space-y-2 bg-white"></div>
+    </div>
+
+    <div class="w-full md:w-2/3 flex flex-col bg-white relative h-full">
+        <div class="h-14 border-b border-gray-200 flex items-center justify-between px-6 bg-white font-medium text-teal-800 shadow-sm z-10">
+             <span id="current-module-title" class="flex items-center gap-2 text-lg truncate">
+                <i class="ph ph-squares-four text-gray-400"></i> <span class="text-gray-400 italic">Select a module...</span>
+            </span>
+            <button id="btn-add-unit" class="text-sm bg-teal-50 text-teal-700 px-3 py-1 rounded border border-teal-200 hidden hover:bg-teal-100 whitespace-nowrap">
+                + Add Unit
+            </button>
+        </div>
+        <div id="unit-container" class="p-4 md:p-6 overflow-y-auto flex-1 bg-slate-50">
+            </div>
+    </div>
+</div>
 
                     <div class="w-2/3 flex flex-col bg-white relative">
                         <div class="h-14 border-b border-gray-200 flex items-center justify-between px-6 bg-white font-medium text-teal-800 shadow-sm z-10">
@@ -175,15 +190,22 @@
 
                 <div id="tab-team" class="hidden flex-1 bg-white rounded-xl shadow p-6 overflow-y-auto">Loading...</div>
                 
-                <div id="tab-schedule" class="hidden flex-1 flex gap-4 overflow-hidden h-full">
-                    <div class="w-1/4 bg-white rounded-xl shadow border border-gray-200 flex flex-col">
-                        <div class="p-4 border-b bg-gray-50 font-bold text-gray-700 flex justify-between items-center">
-                            <span>Planning Queue</span>
-                            <span class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">Drag Units</span>
-                        </div>
-                        <div id="scheduler-sidebar" class="flex-1 overflow-y-auto p-3 space-y-2 bg-gray-50">
-                            </div>
-                    </div>
+                <div id="tab-schedule" class="hidden flex-1 flex flex-col lg:flex-row gap-4 overflow-hidden h-full">
+    
+    <div class="w-full lg:w-1/4 h-48 lg:h-auto bg-white rounded-xl shadow border border-gray-200 flex flex-col order-2 lg:order-1">
+        <div class="p-4 border-b bg-gray-50 font-bold text-gray-700 flex justify-between items-center">
+            <span>Planning Queue</span>
+            <span class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">Drag Units</span>
+        </div>
+        <div id="scheduler-sidebar" class="flex-1 overflow-y-auto p-3 space-y-2 bg-gray-50"></div>
+    </div>
+
+    <div class="flex-1 bg-white rounded-xl shadow border border-gray-200 flex flex-col p-2 md:p-4 overflow-hidden order-1 lg:order-2">
+        <div class="flex justify-between items-center mb-4">
+             </div>
+        <div id="calCont" class="flex-1 overflow-auto border border-gray-200 rounded-xl relative"></div>
+    </div>
+</div>
 
                     <div class="flex-1 bg-white rounded-xl shadow border border-gray-200 flex flex-col p-4 overflow-hidden">
                         <div class="flex justify-between items-center mb-4">
@@ -386,4 +408,5 @@
 </body>
 
 </html>
+
 
